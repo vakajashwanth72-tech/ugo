@@ -1,0 +1,8 @@
+{"_e":"root:init","_t":1789066838359,"format":"v0-jsonl","version":"57.0.23"}
+{"_e":"env:mode","_t":1789066839668,"nodeEnv":"production","babelEnv":"production","mode":"production"}
+{"_e":"env:load","_t":1789066839674,"mode":"production","files":["../..\\..\\.env"],"env":{"EAS_PROJECT_ID":"","EXPO_PUBLIC_N8N_BASE_URL":"https://ugonitk.app.n8n.cloud/webhook","EXPO_PUBLIC_RAZORPAY_KEY_ID":"rzp_test_TSslW485AyMVnu","EXPO_PUBLIC_SUPABASE_ANON_KEY":"sb_publishable_9hyRRfSxKoXNV_iX4Q_W2Q_6vx9hXVXLJDxg7VGa4eKUvwDyg_rGMbCwwMtyAes","EXPO_PUBLIC_SUPABASE_URL":"https://pddkgrveqwmeohxszuxr.supabase.co"}}
+{"_e":"devserver:start","_t":1789066839933,"mode":"production","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":true}
+{"_e":"metro:config","_t":1789066840438,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":true,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1789066840689,"atlas":false,"workers":6,"host":null,"port":null}
+{"_e":"metro:bundling:started","_t":1789066841060,"id":"1","platform":"android","environment":null,"entry":"node_modules\\expo\\AppEntry.js"}
+{"_e":"metro:bundling:done","_t":1789066868561,"id":"1","total":1068,"ms":27500.0811}
