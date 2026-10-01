@@ -12,11 +12,14 @@ import {
   RefreshControl,
   Alert,
   StatusBar,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient, extractCyclesList } from '../../lib/apiClient';
 import { useAuth } from '../../hooks/useAuth';
 import { Cycle } from '../../types';
@@ -25,8 +28,26 @@ import Badge from '../../components/ui/Badge';
 import RentalBottomNav from '../../components/RentalBottomNav';
 import { RootStackParamList } from '../../navigation/navigationTypes';
 import { getCycleImageUrl, extractCycleImages } from '../../lib/cycleUtils';
+import SwipeableScreenWrapper from '../../components/SwipeableScreenWrapper';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const OWNER_CYCLES_STORAGE_KEY = '@ugo_stored_owner_cycles';
+
+const formatListingDate = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return '--';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return String(dateStr);
+    return (
+      d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) +
+      ' at ' +
+      d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    );
+  } catch {
+    return String(dateStr);
+  }
+};
 
 export default function CycleOwnerScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -37,16 +58,36 @@ export default function CycleOwnerScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [updatingCycleId, setUpdatingCycleId] = useState<string | null>(null);
+  const [selectedCycle, setSelectedCycle] = useState<Cycle | null>(null);
+  const [modalActiveImageIndex, setModalActiveImageIndex] = useState(0);
 
   const isFetchingRef = useRef(false);
   const lastFetchTimestampRef = useRef(0);
   const userRef = useRef(user);
   userRef.current = user;
 
+  // Hydrate cached owner cycles from AsyncStorage on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const cached = await AsyncStorage.getItem(OWNER_CYCLES_STORAGE_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setCycles(parsed);
+            setLoading(false);
+          }
+        }
+      } catch {
+        // Ignore cache read error
+      }
+    })();
+  }, []);
+
   const fetchOwnerCycles = useCallback(async (isManualRefresh = false) => {
     const now = Date.now();
-    // Guard against duplicate / rapid calls when navigating or tapping tab (2.5s debounce)
-    if (isFetchingRef.current || (!isManualRefresh && now - lastFetchTimestampRef.current < 2500)) {
+    // Guard against duplicate rapid calls (600ms debounce)
+    if (isFetchingRef.current || (!isManualRefresh && now - lastFetchTimestampRef.current < 600)) {
       console.log('[CycleOwnerScreen] Skipping duplicate getMyCycles call.');
       return;
     }
@@ -59,49 +100,108 @@ export default function CycleOwnerScreen() {
       const res = await apiClient.getMyCycles();
       console.log('[CycleOwnerScreen] getMyCycles raw response received:', res);
 
-      // Collect cycles list from backend response using multi-structure extractor
-      const rawList: any[] = extractCyclesList(res);
-      console.log(`[CycleOwnerScreen] Extracted ${rawList.length} cycle item(s) from backend.`);
+      // Directly extract cycles and cycle_images from backend response
+      const rawCycles: any[] = Array.isArray(res?.cycles)
+        ? res.cycles
+        : extractCyclesList(res);
+      console.log(`[CycleOwnerScreen] Extracted ${rawCycles.length} cycle item(s) from backend.`);
 
-      const formatted: Cycle[] = rawList.map((rawCycle: any, index: number) => {
-        // Unwrap nested cycle container if present (e.g. { getmycycles: { ... } } or { cycles: { ... } })
+      const allCycleImages: any[] = Array.isArray(res?.cycle_images)
+        ? res.cycle_images
+        : [];
+
+      // Group images by cycle_id in order of appearance
+      const imagesByCycleId = new Map<string, any[]>();
+      const imageGroups: any[][] = [];
+      for (const img of allCycleImages) {
+        const cId = String(img?.cycle_id || '').toLowerCase().trim();
+        if (cId) {
+          if (!imagesByCycleId.has(cId)) {
+            const group: any[] = [];
+            imagesByCycleId.set(cId, group);
+            imageGroups.push(group);
+          }
+          imagesByCycleId.get(cId)!.push(img);
+        } else {
+          imageGroups.push([img]);
+        }
+      }
+
+      // Check if any cycle has a direct cycle_id match in cycle_images
+      const hasAnyStrictMatch = rawCycles.some((rc: any) => {
+        const c =
+          rc?.getmycycles ||
+          rc?.getMyCycles ||
+          rc?.mycycles ||
+          rc?.myCycles ||
+          rc?.my_cycles ||
+          rc?.cycles ||
+          rc?.cycle ||
+          rc?.data ||
+          rc?.payload ||
+          rc?.attributes ||
+          rc?.getcycles ||
+          rc?.rows ||
+          rc ||
+          {};
+        const cId = String(
+          c.id ?? c.cycle_id ?? c.cycleId ?? c._id ?? c.cycleid ?? c.id_cycle ?? ''
+        ).trim().toLowerCase();
+        return cId && imagesByCycleId.has(cId);
+      });
+
+      const formatted: Cycle[] = rawCycles.map((rawCycle: any, index: number) => {
+        // Unwrap nested cycle container if present
         const cycle =
           rawCycle?.getmycycles ||
           rawCycle?.getMyCycles ||
+          rawCycle?.mycycles ||
+          rawCycle?.myCycles ||
+          rawCycle?.my_cycles ||
           rawCycle?.cycles ||
           rawCycle?.cycle ||
           rawCycle?.data ||
           rawCycle?.payload ||
           rawCycle?.attributes ||
           rawCycle?.getcycles ||
+          rawCycle?.rows ||
           rawCycle ||
           {};
 
-        const cycleImagesSource =
-          cycle.cycle_images ||
-          cycle.cycleImages ||
-          rawCycle?.cycle_images ||
-          res?.cycle_images;
-
-        const imageUrls = extractCycleImages(cycle);
-        if (imageUrls.length === 0 && rawCycle) {
-          imageUrls.push(...extractCycleImages(rawCycle));
-        }
-        if (imageUrls.length === 0 && res?.cycle_images) {
-          imageUrls.push(...extractCycleImages(res.cycle_images));
-        }
-        if (imageUrls.length === 0 && cycleImagesSource) {
-          imageUrls.push(...extractCycleImages(cycleImagesSource));
-        }
-
-        const primaryImage =
-          imageUrls[0] ||
-          getCycleImageUrl(cycle.image) ||
-          getCycleImageUrl(cycle.image_url) ||
-          getCycleImageUrl(cycle.imageUrl) ||
-          getCycleImageUrl(cycle.storage_path) ||
-          getCycleImageUrl(res?.cycle_images) ||
+        const rawCycleId =
+          cycle.id ??
+          cycle.cycle_id ??
+          cycle.cycleId ??
+          cycle._id ??
+          cycle.cycleid ??
+          cycle.id_cycle ??
           null;
+
+        const resolvedCycleId = rawCycleId !== null && rawCycleId !== undefined ? String(rawCycleId).trim().toLowerCase() : '';
+
+        // Match cycle_images:
+        // 1. Direct ID match if cycle_id matches
+        // 2. Otherwise row-wise: cycles that have their image rows in backend (index < imageGroups.length) get their group.
+        // Cycles where index >= imageGroups.length receive [] (empty, backend will send later).
+        // Absolutely NO modulo (%) operations!
+        let matchedRawImages: any[] = [];
+        if (resolvedCycleId && imagesByCycleId.has(resolvedCycleId)) {
+          matchedRawImages = imagesByCycleId.get(resolvedCycleId)!;
+        } else if (!hasAnyStrictMatch && index < imageGroups.length) {
+          matchedRawImages = imageGroups[index];
+        }
+
+        let imageUrls: string[] = [];
+        if (matchedRawImages.length > 0) {
+          const sorted = [...matchedRawImages].sort(
+            (a: any, b: any) => (parseInt(a?.display_order, 10) || 0) - (parseInt(b?.display_order, 10) || 0)
+          );
+          imageUrls = sorted
+            .map((img: any) => getCycleImageUrl(img?.image_url || img?.imageUrl || img?.storage_path || img))
+            .filter(Boolean);
+        }
+
+        const primaryImage = imageUrls.length > 0 ? imageUrls[0] : null;
 
         const isVerified =
           cycle.is_verified === true ||
@@ -145,17 +245,6 @@ export default function CycleOwnerScreen() {
           50
         );
 
-        const rawCycleId =
-          cycle.cycle_id ??
-          cycle.cycleId ??
-          cycle.id ??
-          cycle._id ??
-          cycle.cycleid ??
-          cycle.id_cycle ??
-          null;
-
-        const resolvedCycleId = rawCycleId !== null && rawCycleId !== undefined ? String(rawCycleId).trim() : '';
-
         return {
           ...cycle,
           id: resolvedCycleId || `cycle-${index}`,
@@ -183,16 +272,19 @@ export default function CycleOwnerScreen() {
           is_active: isAvailable,
           image: primaryImage,
           images: imageUrls,
-          cycle_images: cycle.cycle_images,
+          cycle_images: matchedRawImages.length > 0 ? matchedRawImages : cycle.cycle_images,
           location: cycle.location || cycle.hostel || cycle.place || cycle.address || 'NITK Campus',
           rating: Number(cycle.rating ?? 5.0),
           total_trips: Number(cycle.total_trips ?? cycle.totalTrips ?? 0),
           condition: cycle.condition || 'Good',
+          description: cycle.description || '',
           created_at: cycle.created_at || cycle.createdAt || cycle.date || new Date().toISOString(),
+          updated_at: cycle.updated_at || cycle.updatedAt || cycle.created_at || cycle.createdAt || null,
         } as Cycle;
       });
 
       setCycles(formatted);
+      AsyncStorage.setItem(OWNER_CYCLES_STORAGE_KEY, JSON.stringify(formatted)).catch(() => {});
     } catch (err: any) {
       console.error('[CycleOwnerScreen] Error fetching owner cycles via getMyCycles:', err);
     } finally {
@@ -221,21 +313,42 @@ export default function CycleOwnerScreen() {
   };
 
   const toggleCycleAvailability = async (cycle: Cycle) => {
-    const nextStatus = cycle.status === 'available' ? 'unavailable' : 'available';
+    const isCurrentlyAvailable = cycle.status === 'available';
+    // If it is available send status available; if unavailable send status unavailable.
+    // The backend takes the current status and makes it the counter status.
+    const currentStatus = isCurrentlyAvailable ? 'available' : 'unavailable';
+    const counterStatus = isCurrentlyAvailable ? 'unavailable' : 'available';
+
+    const cycleId = String((cycle as any).cycle_id || cycle.id || '').trim();
     setUpdatingCycleId(cycle.id);
 
     try {
-      await apiClient.updateCycleAvailability(cycle.id, nextStatus);
+      console.log(
+        `[CycleOwnerScreen] Toggling availability for cycle ${cycleId}. Sending current status: '${currentStatus}' (backend will flip to '${counterStatus}')`
+      );
+      const res = await apiClient.changeAvailabilityStatus(cycleId, currentStatus);
+
+      const resolvedNewStatus =
+        res?.status ||
+        res?.data?.status ||
+        counterStatus;
+
       setCycles((prev) =>
         prev.map((c) =>
-          c.id === cycle.id
-            ? { ...c, status: nextStatus, is_active: nextStatus === 'available' }
+          c.id === cycle.id || (c as any).cycle_id === cycleId
+            ? { ...c, status: resolvedNewStatus, is_active: resolvedNewStatus === 'available' }
             : c
         )
       );
+
+      setSelectedCycle((curr) =>
+        curr && (curr.id === cycle.id || (curr as any).cycle_id === cycleId)
+          ? { ...curr, status: resolvedNewStatus, is_active: resolvedNewStatus === 'available' }
+          : curr
+      );
     } catch (err: any) {
       console.error('[CycleOwnerScreen] Toggle availability error:', err);
-      Alert.alert('Update Failed', err?.message || 'Unable to update availability.');
+      Alert.alert('Update Failed', err?.data?.message || err?.message || 'Unable to update availability.');
     } finally {
       setUpdatingCycleId(null);
     }
@@ -263,13 +376,15 @@ export default function CycleOwnerScreen() {
               console.log('[CycleOwnerScreen] Dispatching delete to backend with full cycle details:', cycle);
               const res = await apiClient.deleteCycle(cycle);
               console.log('[CycleOwnerScreen] Delete cycle response:', res);
-              setCycles((prev) =>
-                prev.filter(
+              setCycles((prev) => {
+                const filtered = prev.filter(
                   (c) =>
                     String(c.id).trim() !== cycleId &&
                     String((c as any).cycle_id || '').trim() !== cycleId
-                )
-              );
+                );
+                AsyncStorage.setItem(OWNER_CYCLES_STORAGE_KEY, JSON.stringify(filtered)).catch(() => {});
+                return filtered;
+              });
               Alert.alert('Deleted ✅', res?.message || 'Cycle listing has been removed successfully.');
             } catch (err: any) {
               console.error('[CycleOwnerScreen] Delete cycle error:', err);
@@ -306,7 +421,7 @@ export default function CycleOwnerScreen() {
 
           <View style={styles.infoCol}>
             <View style={styles.titleRow}>
-              <Text style={styles.cycleTitle} numberOfLines={1}>
+              <Text style={styles.cycleTitle} numberOfLines={2}>
                 {item.brand} {item.model}
               </Text>
               <View style={styles.actionButtonsRow}>
@@ -366,6 +481,32 @@ export default function CycleOwnerScreen() {
             <Text style={styles.priceLabel}>
               ₹{item.hourlyPrice}/hr • ₹{item.dailyPrice}/day
             </Text>
+
+            {/* Lower row: Listed/Edited date on left, Details button on side low (right) */}
+            <View style={styles.bottomInfoRow}>
+              <View style={styles.dateRow}>
+                <Ionicons name="calendar-outline" size={11} color={colors.textLight} />
+                <Text style={styles.dateText} numberOfLines={1}>
+                  {item.updated_at &&
+                  item.created_at &&
+                  new Date(item.updated_at).getTime() - new Date(item.created_at).getTime() > 60000
+                    ? `Edited: ${formatListingDate(item.updated_at)}`
+                    : `Listed: ${formatListingDate(item.created_at)}`}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.detailsBtn}
+                onPress={() => {
+                  setModalActiveImageIndex(0);
+                  setSelectedCycle(item);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="eye-outline" size={12} color={colors.accent} />
+                <Text style={styles.detailsBtnText}>Details</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -400,60 +541,288 @@ export default function CycleOwnerScreen() {
           onPress: () => navigation.navigate('Listing')}}
       />
 
-      {/* Owner stats summary */}
-      <View style={styles.summaryBar}>
-        <View style={styles.statBox}>
-          <Text style={styles.statNumber}>{cycles.length}</Text>
-          <Text style={styles.statLabel}>Total Cycles</Text>
+      <SwipeableScreenWrapper currentTab="cycles" disableSwipe={Boolean(selectedCycle)}>
+        {/* Owner stats summary */}
+        <View style={styles.summaryBar}>
+          <View style={styles.statBox}>
+            <Text style={styles.statNumber}>{cycles.length}</Text>
+            <Text style={styles.statLabel}>Total Cycles</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statBox}>
+            <Text style={styles.statNumber}>
+              {cycles.filter((c) => c.status === 'available').length}
+            </Text>
+            <Text style={styles.statLabel}>Active Listings</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statBox}>
+            <Text style={styles.statNumber}>
+              ₹{profile?.net_balance || 0}
+            </Text>
+            <Text style={styles.statLabel}>Net Balance</Text>
+          </View>
         </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statBox}>
-          <Text style={styles.statNumber}>
-            {cycles.filter((c) => c.status === 'available').length}
-          </Text>
-          <Text style={styles.statLabel}>Active Listings</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statBox}>
-          <Text style={styles.statNumber}>
-            ₹{profile?.net_balance || 0}
-          </Text>
-          <Text style={styles.statLabel}>Net Balance</Text>
-        </View>
-      </View>
 
-      {loading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={styles.loadingText}>Loading your cycles...</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={cycles}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderCycleItem}
-          contentContainerStyle={styles.listContainer}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accent]} />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons name="bicycle-outline" size={64} color={colors.textLight} />
-              <Text style={styles.emptyTitle}>No cycles listed yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Turn your idle bicycle into earnings! List your cycle in just 2 minutes.
-              </Text>
+        {loading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={styles.loadingText}>Loading your cycles...</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={cycles}
+            keyExtractor={(item, index) => (item.id ? `${item.id}-${index}` : String(index))}
+            renderItem={renderCycleItem}
+            contentContainerStyle={styles.listContainer}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accent]} />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Ionicons name="bicycle-outline" size={64} color={colors.textLight} />
+                <Text style={styles.emptyTitle}>No cycles listed yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Turn your idle bicycle into earnings! List your cycle in just 2 minutes.
+                </Text>
+                <TouchableOpacity
+                  style={styles.addCycleBtn}
+                  onPress={() => navigation.navigate('Listing')}
+                >
+                  <Ionicons name="add" size={20} color={colors.white} />
+                  <Text style={styles.addCycleBtnText}>List New Cycle</Text>
+                </TouchableOpacity>
+              </View>
+            }
+          />
+        )}
+      </SwipeableScreenWrapper>
+
+      {/* Details Modal */}
+      <Modal
+        visible={Boolean(selectedCycle)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedCycle(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1, marginRight: spacing.sm }}>
+                <Text style={styles.modalSubtag}>CYCLE SPECIFICATIONS</Text>
+                <Text style={styles.modalTitle} numberOfLines={1}>
+                  {selectedCycle?.brand} {selectedCycle?.model}
+                </Text>
+              </View>
               <TouchableOpacity
-                style={styles.addCycleBtn}
-                onPress={() => navigation.navigate('Listing')}
+                style={styles.modalCloseBtn}
+                onPress={() => setSelectedCycle(null)}
               >
-                <Ionicons name="add" size={20} color={colors.white} />
-                <Text style={styles.addCycleBtnText}>List New Cycle</Text>
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
             </View>
-          }
-        />
-      )}
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScroll}>
+              {/* Photo gallery with navigation arrows */}
+              {(() => {
+                const modalImages: string[] =
+                  selectedCycle?.images && selectedCycle.images.length > 0
+                    ? selectedCycle.images
+                    : selectedCycle?.image
+                    ? [selectedCycle.image]
+                    : [];
+
+                if (modalImages.length === 0) {
+                  return (
+                    <View style={styles.modalNoPhoto}>
+                      <Ionicons name="bicycle-outline" size={48} color={colors.textLight} />
+                    </View>
+                  );
+                }
+
+                const currentImageUri = modalImages[modalActiveImageIndex] || modalImages[0];
+
+                return (
+                  <View style={styles.modalCarouselWrapper}>
+                    <View style={styles.modalCarouselContainer}>
+                      <Image
+                        source={{ uri: getCycleImageUrl(currentImageUri) }}
+                        style={styles.modalCarouselImage}
+                        resizeMode="cover"
+                      />
+
+                      {modalImages.length > 1 && (
+                        <>
+                          {/* Left Arrow Button */}
+                          <TouchableOpacity
+                            style={[styles.modalArrowBtn, styles.modalLeftArrow]}
+                            onPress={() =>
+                              setModalActiveImageIndex((prev) =>
+                                prev > 0 ? prev - 1 : modalImages.length - 1
+                              )
+                            }
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                          >
+                            <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+                          </TouchableOpacity>
+
+                          {/* Right Arrow Button */}
+                          <TouchableOpacity
+                            style={[styles.modalArrowBtn, styles.modalRightArrow]}
+                            onPress={() =>
+                              setModalActiveImageIndex((prev) =>
+                                prev < modalImages.length - 1 ? prev + 1 : 0
+                              )
+                            }
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                          >
+                            <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+                          </TouchableOpacity>
+
+                          {/* Image Counter Badge */}
+                          <View style={styles.modalImageCounter}>
+                            <Ionicons name="images-outline" size={11} color="#FFFFFF" style={{ marginRight: 4 }} />
+                            <Text style={styles.modalImageCounterText}>
+                              {modalActiveImageIndex + 1} / {modalImages.length}
+                            </Text>
+                          </View>
+                        </>
+                      )}
+                    </View>
+
+                    {/* Dots / Pagination indicator */}
+                    {modalImages.length > 1 && (
+                      <View style={styles.modalDotsRow}>
+                        {modalImages.map((_, idx) => (
+                          <TouchableOpacity
+                            key={idx}
+                            onPress={() => setModalActiveImageIndex(idx)}
+                            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                          >
+                            <View
+                              style={[
+                                styles.modalDot,
+                                modalActiveImageIndex === idx && styles.modalActiveDot,
+                              ]}
+                            />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
+
+              {/* Status & Pricing Banner */}
+              <View style={styles.modalStatusRow}>
+                <View style={styles.badgeRow}>
+                  <Badge
+                    variant={selectedCycle?.is_verified ? 'success' : 'warning'}
+                    label={selectedCycle?.is_verified ? 'Verified by Admin' : 'Pending Verification'}
+                    size="sm"
+                  />
+                  <Badge
+                    variant={selectedCycle?.status === 'available' ? 'primary' : 'neutral'}
+                    label={selectedCycle?.status === 'available' ? 'Active & Available' : (selectedCycle?.status === 'rented' ? 'Currently Rented' : 'Paused')}
+                    size="sm"
+                  />
+                </View>
+                <Text style={styles.modalPriceText}>
+                  ₹{selectedCycle?.hourlyPrice}/hr • ₹{selectedCycle?.dailyPrice}/day
+                </Text>
+              </View>
+
+              {/* Specifications Grid */}
+              <Text style={styles.modalSectionHeading}>Specifications</Text>
+              <View style={styles.specsGrid}>
+                <View style={styles.specItem}>
+                  <Ionicons name="bicycle-outline" size={16} color={colors.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.specItemLabel}>Cycle Type</Text>
+                    <Text style={styles.specItemValue}>{selectedCycle?.cycle_type || 'Standard'}</Text>
+                  </View>
+                </View>
+                <View style={styles.specItem}>
+                  <Ionicons name="shield-checkmark-outline" size={16} color="#059669" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.specItemLabel}>Condition</Text>
+                    <Text style={styles.specItemValue}>{selectedCycle?.condition || 'Good'}</Text>
+                  </View>
+                </View>
+                <View style={styles.specItem}>
+                  <Ionicons name="flash-outline" size={16} color="#D97706" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.specItemLabel}>Gear Type</Text>
+                    <Text style={styles.specItemValue}>{selectedCycle?.gear_type || (selectedCycle?.geared ? 'Geared' : 'Non-Geared')}</Text>
+                  </View>
+                </View>
+                <View style={styles.specItem}>
+                  <Ionicons name="location-outline" size={16} color="#2563EB" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.specItemLabel}>Location</Text>
+                    <Text style={styles.specItemValue} numberOfLines={1}>{selectedCycle?.location || 'Campus'}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Description */}
+              {Boolean(selectedCycle?.description) && (
+                <View style={styles.modalDescBox}>
+                  <Text style={styles.modalSectionHeading}>Description</Text>
+                  <Text style={styles.modalDescText}>{selectedCycle?.description}</Text>
+                </View>
+              )}
+
+              {/* Timestamps Section: Listed at & Last edited at */}
+              <View style={styles.modalDatesCard}>
+                <View style={styles.modalDateItem}>
+                  <Ionicons name="calendar-outline" size={14} color={colors.textLight} />
+                  <Text style={styles.modalDateLabel}>Listed at:</Text>
+                  <Text style={styles.modalDateVal}>{formatListingDate(selectedCycle?.created_at)}</Text>
+                </View>
+                {selectedCycle?.updated_at && (
+                  <View style={styles.modalDateItem}>
+                    <Ionicons name="time-outline" size={14} color={colors.textLight} />
+                    <Text style={styles.modalDateLabel}>Last edited at:</Text>
+                    <Text style={styles.modalDateVal}>{formatListingDate(selectedCycle?.updated_at)}</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.modalActionButtons}>
+                <TouchableOpacity
+                  style={styles.modalEditBtn}
+                  onPress={() => {
+                    const cycleToEdit = selectedCycle;
+                    setSelectedCycle(null);
+                    if (cycleToEdit) {
+                      navigation.navigate('Listing', {
+                        editCycleId: String(cycleToEdit.id),
+                        cycleId: cycleToEdit.id,
+                        cycle: cycleToEdit,
+                      });
+                    }
+                  }}
+                >
+                  <Ionicons name="pencil" size={16} color={colors.white} />
+                  <Text style={styles.modalEditBtnText}>Edit This Cycle</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.modalDismissBtn}
+                  onPress={() => setSelectedCycle(null)}
+                >
+                  <Text style={styles.modalDismissBtnText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <RentalBottomNav activeTab="cycles" />
     </SafeAreaView>
@@ -618,8 +987,286 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
     paddingVertical: 12,
-    borderRadius: borderRadius.md},
+    borderRadius: borderRadius.md,
+  },
   addCycleBtnText: {
     color: colors.white,
     fontWeight: '700',
-    fontSize: typography.body2.fontSize}});
+    fontSize: typography.body2.fontSize,
+  },
+  bottomInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  detailsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+  },
+  detailsBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.accent,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+    marginRight: 6,
+  },
+  dateText: {
+    fontSize: 10,
+    color: colors.textLight,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.md,
+  },
+  modalCard: {
+    width: '100%',
+    maxHeight: '85%',
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    ...shadows.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.xs,
+  },
+  modalSubtag: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.primary,
+    letterSpacing: 0.6,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginTop: 2,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalScroll: {
+    paddingBottom: spacing.sm,
+  },
+  modalCarouselWrapper: {
+    marginVertical: spacing.xs,
+  },
+  modalCarouselContainer: {
+    width: '100%',
+    height: 180,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: colors.surfaceLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCarouselImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: borderRadius.md,
+  },
+  modalArrowBtn: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -18,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    zIndex: 10,
+    ...shadows.sm,
+  },
+  modalLeftArrow: {
+    left: 8,
+  },
+  modalRightArrow: {
+    right: 8,
+  },
+  modalImageCounter: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    zIndex: 10,
+  },
+  modalImageCounterText: {
+    color: colors.white,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  modalDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  modalDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+  },
+  modalActiveDot: {
+    width: 16,
+    backgroundColor: colors.primary,
+  },
+  modalNoPhoto: {
+    width: '100%',
+    height: 120,
+    borderRadius: borderRadius.md,
+    marginVertical: spacing.sm,
+    backgroundColor: colors.surfaceLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalStatusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: spacing.xs,
+  },
+  modalPriceText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.accent,
+  },
+  modalSectionHeading: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  specsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: spacing.xs,
+  },
+  specItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.surfaceLight,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    width: '48%',
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  specItemLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: colors.textLight,
+    textTransform: 'uppercase',
+  },
+  specItemValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  modalDescBox: {
+    backgroundColor: 'rgba(10, 25, 47, 0.03)',
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  modalDescText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  modalDatesCard: {
+    backgroundColor: colors.surfaceLight,
+    borderRadius: borderRadius.md,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    gap: 4,
+  },
+  modalDateItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  modalDateLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  modalDateVal: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  modalActionButtons: {
+    marginTop: spacing.md,
+    gap: spacing.xs,
+  },
+  modalEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.md,
+    paddingVertical: 12,
+  },
+  modalEditBtnText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  modalDismissBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  modalDismissBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+});

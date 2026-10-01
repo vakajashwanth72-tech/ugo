@@ -29,13 +29,14 @@ import { useAuth } from '../../hooks/useAuth';
 import { getAccessToken } from '../../lib/secureStorage';
 import { RootStackParamList } from '../../navigation/navigationTypes';
 import { getCycleImageUrl, extractCycleImages } from '../../lib/cycleUtils';
+import SwipeableScreenWrapper from '../../components/SwipeableScreenWrapper';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { profile, user, isAdmin } = useAuth();
-  const { unreadCount } = useNotifications(user?.id);
+  const { unreadCount } = useNotifications();
   const [hasToken, setHasToken] = useState<boolean>(false);
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -359,114 +360,114 @@ export default function HomeScreen() {
         }
       />
 
-      {/* Admin Notice Banner if logged in as Admin */}
-      {isAdmin && (
-        <TouchableOpacity
-          style={styles.adminNoticeBanner}
-          onPress={() => navigation.navigate('AdminDashboard')}
-          activeOpacity={0.85}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Ionicons name="shield-checkmark" size={16} color="#B45309" />
-            <Text style={styles.adminNoticeText}>
-              Campus Admin Active • Review pending cycles
+      <SwipeableScreenWrapper currentTab="home" disableSwipe={filterModalVisible}>
+        {/* Admin Notice Banner if logged in as Admin */}
+        {isAdmin && (
+          <TouchableOpacity
+            style={styles.adminNoticeBanner}
+            onPress={() => navigation.navigate('AdminDashboard')}
+            activeOpacity={0.85}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="shield-checkmark" size={16} color="#B45309" />
+              <Text style={styles.adminNoticeText}>
+                Campus Admin Active • Review pending cycles
+              </Text>
+            </View>
+            <Text style={styles.adminNoticeLink}>Open Portal →</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Top Search & Filter Bar */}
+        <View style={styles.topControlSection}>
+          {/* Search Input */}
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={18} color={colors.textSecondary} style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search cycles, brands, locations..."
+              placeholderTextColor={colors.textLight}
+              value={search}
+              onChangeText={setSearch}
+            />
+            {search.length > 0 && (
+              <TouchableOpacity onPress={() => setSearch('')} style={{ padding: 4 }}>
+                <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Action Row: Filters button & Result count */}
+          <View style={styles.filterBarRow}>
+            <TouchableOpacity
+              style={[styles.filterToggleBtn, activeFilterCount > 0 && styles.filterToggleBtnActive]}
+              onPress={() => setFilterModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="options-outline"
+                size={16}
+                color={activeFilterCount > 0 ? colors.accent : colors.textPrimary}
+              />
+              <Text
+                style={[styles.filterToggleText, activeFilterCount > 0 && styles.filterToggleTextActive]}
+              >
+                Filters
+              </Text>
+              {activeFilterCount > 0 && (
+                <View style={styles.filterBadge}>
+                  <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.resultCountText}>
+              {loading ? 'Searching...' : `${filteredCycles.length} cycles`}
             </Text>
           </View>
-          <Text style={styles.adminNoticeLink}>Open Portal →</Text>
-        </TouchableOpacity>
-      )}
-
-
-
-      {/* Top Search & Filter Bar */}
-      <View style={styles.topControlSection}>
-        {/* Search Input */}
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={18} color={colors.textSecondary} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search cycles, brands, locations..."
-            placeholderTextColor={colors.textLight}
-            value={search}
-            onChangeText={setSearch}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')} style={{ padding: 4 }}>
-              <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          )}
         </View>
 
-        {/* Action Row: Filters button & Result count */}
-        <View style={styles.filterBarRow}>
-          <TouchableOpacity
-            style={[styles.filterToggleBtn, activeFilterCount > 0 && styles.filterToggleBtnActive]}
-            onPress={() => setFilterModalVisible(true)}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name="options-outline"
-              size={16}
-              color={activeFilterCount > 0 ? colors.accent : colors.textPrimary}
-            />
-            <Text
-              style={[styles.filterToggleText, activeFilterCount > 0 && styles.filterToggleTextActive]}
-            >
-              Filters
-            </Text>
-            {activeFilterCount > 0 && (
-              <View style={styles.filterBadge}>
-                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+        {/* Browse Cycles Heading */}
+        <View style={styles.headingSection}>
+          <Text style={styles.headingTag}>NITK CYCLE SHARING</Text>
+          <Text style={styles.headingTitle}>Browse Cycles</Text>
+          <Text style={styles.headingSubtitle}>Find an available cycle and start your ride.</Text>
+        </View>
+
+        {/* Cycles Feed */}
+        {loading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={styles.loadingText}>Finding available cycles...</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredCycles}
+            keyExtractor={(item) => String(item.id)}
+            renderItem={renderCycleCard}
+            contentContainerStyle={styles.listContainer}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={[colors.accent]}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Ionicons name="bicycle-outline" size={60} color={colors.textLight} />
+                <Text style={styles.emptyTitle}>No cycles found</Text>
+                <Text style={styles.emptySubtitle}>Try changing your filters or search terms.</Text>
+                {activeFilterCount > 0 && (
+                  <TouchableOpacity style={styles.clearFiltersBtn} onPress={resetFilters}>
+                    <Text style={styles.clearFiltersText}>Clear Filters</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-            )}
-          </TouchableOpacity>
-
-          <Text style={styles.resultCountText}>
-            {loading ? 'Searching...' : `${filteredCycles.length} cycles`}
-          </Text>
-        </View>
-      </View>
-
-      {/* Browse Cycles Heading */}
-      <View style={styles.headingSection}>
-        <Text style={styles.headingTag}>NITK CYCLE SHARING</Text>
-        <Text style={styles.headingTitle}>Browse Cycles</Text>
-        <Text style={styles.headingSubtitle}>Find an available cycle and start your ride.</Text>
-      </View>
-
-      {/* Cycles Feed */}
-      {loading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={styles.loadingText}>Finding available cycles...</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredCycles}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderCycleCard}
-          contentContainerStyle={styles.listContainer}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[colors.accent]}
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons name="bicycle-outline" size={60} color={colors.textLight} />
-              <Text style={styles.emptyTitle}>No cycles found</Text>
-              <Text style={styles.emptySubtitle}>Try changing your filters or search terms.</Text>
-              {activeFilterCount > 0 && (
-                <TouchableOpacity style={styles.clearFiltersBtn} onPress={resetFilters}>
-                  <Text style={styles.clearFiltersText}>Clear Filters</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          }
-        />
-      )}
+            }
+          />
+        )}
+      </SwipeableScreenWrapper>
 
       {/* Bottom Nav */}
       <RentalBottomNav activeTab="home" />

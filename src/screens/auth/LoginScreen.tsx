@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { apiClient } from '../../lib/apiClient';
 import { saveAuthTokens } from '../../lib/secureStorage';
+import { registerDeviceTokenWithBackend } from '../../lib/pushNotifications';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
@@ -91,6 +92,11 @@ export default function LoginScreen() {
         email: cleanEmail,
         ...result?.user,
         role: userRole,
+      });
+
+      // Register device FCM token in background upon successful login
+      registerDeviceTokenWithBackend().catch((err) => {
+        console.warn('[LoginScreen] FCM device registration note:', err?.message || err);
       });
 
       // Navigate according to user role: admins see their dashboard & properties, students see student feed

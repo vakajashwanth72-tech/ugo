@@ -31,9 +31,15 @@ import ChatScreen from '../screens/chat/ChatScreen';
 import CallModal from '../screens/call/CallModal';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import BookingHistoryScreen from '../screens/profile/BookingHistoryScreen';
+import WalletScreen from '../screens/profile/WalletScreen';
 
 // Admin Screens
 import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
+import AdminAllCyclesScreen from '../screens/admin/AdminAllCyclesScreen';
+import AdminAllUsersScreen from '../screens/admin/AdminAllUsersScreen';
+import AdminActiveRidesScreen from '../screens/admin/AdminActiveRidesScreen';
+import AdminCycleVerificationsScreen from '../screens/admin/AdminCycleVerificationsScreen';
+import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
 import CycleVerificationScreen from '../screens/admin/CycleVerificationScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -57,7 +63,8 @@ export default function RootNavigator() {
       screenOptions={{
         headerShown: false,
         animation: 'slide_from_right',
-        contentStyle: { backgroundColor: colors.background },
+        animationDuration: 240,
+        contentStyle: { backgroundColor: colors.backgroundDark },
       }}
     >
       {/* Landing */}
@@ -73,11 +80,23 @@ export default function RootNavigator() {
       {/* Role Choice */}
       <Stack.Screen name="Choice" component={ChoiceScreen} />
 
-      {/* Main App */}
-      <Stack.Screen name="Home" component={HomeScreen} />
+      {/* Main App Tab Screens (animation: 'none' ensures the bottom navbar remains stationary while content transitions) */}
+      <Stack.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{ animation: 'none' }}
+      />
       <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
-      <Stack.Screen name="OngoingRentals" component={OngoingRentalsScreen} />
-      <Stack.Screen name="CycleOwner" component={CycleOwnerScreen} />
+      <Stack.Screen
+        name="OngoingRentals"
+        component={OngoingRentalsScreen}
+        options={{ animation: 'none' }}
+      />
+      <Stack.Screen
+        name="CycleOwner"
+        component={CycleOwnerScreen}
+        options={{ animation: 'none' }}
+      />
       <Stack.Screen name="Listing" component={ListingScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="OtpVerification" component={OtpVerificationScreen} />
@@ -91,11 +110,21 @@ export default function RootNavigator() {
           animation: 'fade_from_bottom',
         }}
       />
-      <Stack.Screen name="Profile" component={ProfileScreen} />
+      <Stack.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{ animation: 'none' }}
+      />
       <Stack.Screen name="BookingHistory" component={BookingHistoryScreen} />
+      <Stack.Screen name="Wallet" component={WalletScreen} />
 
       {/* Admin */}
       <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+      <Stack.Screen name="AdminAllCycles" component={AdminAllCyclesScreen} />
+      <Stack.Screen name="AdminAllUsers" component={AdminAllUsersScreen} />
+      <Stack.Screen name="AdminActiveRides" component={AdminActiveRidesScreen} />
+      <Stack.Screen name="AdminCycleVerifications" component={AdminCycleVerificationsScreen} />
+      <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
       <Stack.Screen name="CycleVerification" component={CycleVerificationScreen} />
     </Stack.Navigator>
   );

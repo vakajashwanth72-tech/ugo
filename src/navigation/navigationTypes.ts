@@ -8,7 +8,7 @@ export type RootStackParamList = {
   ResetPassword: { resetUrl?: string; tempToken?: string; email?: string } | undefined;
   Choice: undefined;
   Home: undefined;
-  BookingDetail: { cycle: Cycle };
+  BookingDetail: { cycle?: Cycle; cycleId?: string };
   OngoingRentals: undefined;
   CycleOwner: { refresh?: number } | undefined;
   Landing: undefined;
@@ -20,7 +20,13 @@ export type RootStackParamList = {
   CallModal: { targetUserId?: string; targetUserName?: string; bookingId?: string };
   Profile: undefined;
   BookingHistory: undefined;
+  Wallet: undefined;
   AdminDashboard: undefined;
+  AdminAllCycles: undefined;
+  AdminAllUsers: undefined;
+  AdminActiveRides: undefined;
+  AdminCycleVerifications: undefined;
+  AdminReports: undefined;
   CycleVerification: { cycleId: string; cycle?: Cycle };
   OwnerDetails: { ownerId?: string; owner?: any };
 };

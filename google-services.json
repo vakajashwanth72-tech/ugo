@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "783577812091",
+    "project_id": "ugo-cyclesharing",
+    "storage_bucket": "ugo-cyclesharing.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:783577812091:android:bbe193849723f797aa66de",
+        "android_client_info": {
+          "package_name": "in.ugo.nitk.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAeC4ukFPrSwLZ1lxW4VIeSae5rnZCcZQE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

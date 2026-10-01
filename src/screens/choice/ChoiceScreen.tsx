@@ -22,7 +22,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 export default function ChoiceScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { profile, user, isAdmin } = useAuth();
-  const { unreadCount } = useNotifications(user?.id);
+  const { unreadCount } = useNotifications();
 
   const firstName = profile?.full_name?.split(' ')[0] || 'Student';
 

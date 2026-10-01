@@ -13,9 +13,12 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
+import PasswordRequirements from '../../components/ui/PasswordRequirements';
+import { isValidNitkEmail, getPasswordValidation, getPasswordErrorMessage } from '../../lib/validation';
 import { apiClient } from '../../lib/apiClient';
 import { RootStackParamList } from '../../navigation/navigationTypes';
 
@@ -42,6 +45,14 @@ export default function SignUpScreen() {
       return;
     }
 
+    // 1. NITK Email constraint validation
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidNitkEmail(cleanEmail)) {
+      setError('Only official NITK email addresses ending with .nitk.edu.in are allowed (e.g. student@nitk.edu.in).');
+      return;
+    }
+
+    // 2. Mobile number validation
     const rawDigits = phone.replace(/\D/g, '');
     if (!rawDigits || rawDigits.length < 10) {
       setError('Please enter a valid 10-digit mobile number.');
@@ -49,13 +60,16 @@ export default function SignUpScreen() {
     }
     const cleanNumber = parseInt(rawDigits.slice(-10), 10);
 
-    if (password !== confirmPass) {
-      setError('Passwords do not match.');
+    // 3. Password constraints validation (capital, small, digit, special character, length)
+    const passValidation = getPasswordValidation(password);
+    if (!passValidation.isValid) {
+      setError(getPasswordErrorMessage(passValidation) || 'Password does not meet security requirements.');
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
+    // 4. Confirm password match
+    if (password !== confirmPass) {
+      setError('Passwords do not match.');
       return;
     }
 
@@ -158,6 +172,35 @@ export default function SignUpScreen() {
               autoCapitalize="none"
             />
 
+            <View style={styles.emailConstraintBox}>
+              <Ionicons
+                name={
+                  email.length === 0
+                    ? 'information-circle-outline'
+                    : isValidNitkEmail(email)
+                    ? 'checkmark-circle'
+                    : 'alert-circle-outline'
+                }
+                size={14}
+                color={
+                  email.length === 0
+                    ? colors.textSecondary
+                    : isValidNitkEmail(email)
+                    ? '#10B981'
+                    : colors.danger
+                }
+              />
+              <Text
+                style={[
+                  styles.emailConstraintText,
+                  email.length > 0 && isValidNitkEmail(email) && styles.emailConstraintValid,
+                  email.length > 0 && !isValidNitkEmail(email) && styles.emailConstraintInvalid,
+                ]}
+              >
+                Only .nitk.edu.in email addresses are allowed
+              </Text>
+            </View>
+
             <Input
               label="Phone Number *"
               placeholder="e.g. 9581798086"
@@ -181,7 +224,7 @@ export default function SignUpScreen() {
 
             <Input
               label="Password *"
-              placeholder="Min 6 characters"
+              placeholder="Enter secure password"
               value={password}
               onChangeText={(text) => {
                 setPassword(text);
@@ -189,6 +232,8 @@ export default function SignUpScreen() {
               }}
               isPassword
             />
+
+            <PasswordRequirements password={password} showAlways={true} />
 
             <Input
               label="Confirm Password *"
@@ -200,6 +245,24 @@ export default function SignUpScreen() {
               }}
               isPassword
             />
+
+            {confirmPass.length > 0 && (
+              <View style={styles.passwordMatchNotice}>
+                <Ionicons
+                  name={password === confirmPass ? 'checkmark-circle' : 'alert-circle-outline'}
+                  size={14}
+                  color={password === confirmPass ? '#10B981' : colors.danger}
+                />
+                <Text
+                  style={[
+                    styles.passwordMatchNoticeText,
+                    password === confirmPass ? styles.passwordMatchValid : styles.passwordMatchInvalid,
+                  ]}
+                >
+                  {password === confirmPass ? 'Passwords match' : 'Passwords do not match'}
+                </Text>
+              </View>
+            )}
 
             <Button
               title="Create Account"
@@ -274,4 +337,45 @@ const styles = StyleSheet.create({
   footerLink: {
     color: colors.accent,
     fontSize: typography.body2.fontSize,
-    fontWeight: '700'}});
+    fontWeight: '700',
+  },
+  emailConstraintBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: -8,
+    marginBottom: spacing.md,
+    paddingHorizontal: 2,
+  },
+  emailConstraintText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  emailConstraintValid: {
+    color: '#065F46',
+    fontWeight: '600',
+  },
+  emailConstraintInvalid: {
+    color: colors.danger,
+    fontWeight: '500',
+  },
+  passwordMatchNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: -8,
+    marginBottom: spacing.md,
+    paddingHorizontal: 2,
+  },
+  passwordMatchNoticeText: {
+    fontSize: 12,
+  },
+  passwordMatchValid: {
+    color: '#065F46',
+    fontWeight: '600',
+  },
+  passwordMatchInvalid: {
+    color: colors.danger,
+    fontWeight: '500',
+  },
+});

@@ -3,7 +3,13 @@ import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { Profile } from '../types';
 import { getAccessToken, getUserData, clearAuthTokens } from '../lib/secureStorage';
-import { apiClient } from '../lib/apiClient';
+import { apiClient, normalizeProfileData } from '../lib/apiClient';
+import { clearStoredNotifications } from './useNotifications';
+import {
+  registerDeviceTokenWithBackend,
+  unregisterDeviceTokenWithBackend,
+  resetDeviceRegistrationSession,
+} from '../lib/pushNotifications';
 
 function decodeBase64(str: string): string {
   try {
@@ -48,36 +54,27 @@ export function useAuth() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  const fetchProfile = useCallback(async (userId: string) => {
-    // Only query Supabase profiles table if userId is a valid UUID
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
-    if (!isUuid) {
-      return null;
-    }
-
+  const fetchProfile = useCallback(async (userId?: string) => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (error) {
-        console.warn('Error fetching profile:', error);
-        return null;
+      const res = await apiClient.getProfile();
+      const p = normalizeProfileData(res);
+      if (p) {
+        setProfile((prev) => ({
+          id: userId || prev?.id || 'user',
+          email: p.email || prev?.email || '',
+          full_name: p.full_name || prev?.full_name || 'NITK Student',
+          role: prev?.role || 'student',
+          phone: p.phone || prev?.phone || '',
+          hostel: p.hostel || prev?.hostel || '',
+          avatar_url: p.avatar_url || (prev as any)?.avatar_url,
+          net_balance: p.net_balance !== undefined ? p.net_balance : prev?.net_balance || 0,
+        } as any));
+        return p;
       }
-
-      if (data) {
-        const role = String(data.role || '').trim().toLowerCase() === 'admin' ? 'admin' : 'student';
-        const formatted = { ...data, role } as Profile;
-        setProfile(formatted);
-        return formatted;
-      }
-      return null;
     } catch (err) {
-      console.error('Failed to fetch profile:', err);
-      return null;
+      console.warn('[useAuth] fetchProfile note:', err);
     }
+    return null;
   }, []);
 
   useEffect(() => {
@@ -130,6 +127,8 @@ export function useAuth() {
             net_balance: storedUser?.net_balance || 0,
           } as any);
           setLoading(false);
+          // Register device FCM token in background for restored backend session
+          registerDeviceTokenWithBackend().catch(() => {});
           return;
         }
 
@@ -141,6 +140,8 @@ export function useAuth() {
           setSession(data.session);
           setUser(data.session.user);
           await fetchProfile(data.session.user.id);
+          // Register device FCM token in background for restored Supabase session
+          registerDeviceTokenWithBackend().catch(() => {});
         }
       } catch (err) {
         console.error('Auth initialization error:', err);
@@ -159,6 +160,7 @@ export function useAuth() {
           setSession(newSession);
           setUser(newSession.user);
           await fetchProfile(newSession.user.id);
+          registerDeviceTokenWithBackend().catch(() => {});
         } else if (event === 'SIGNED_OUT') {
           const storedToken = await getAccessToken();
           if (!storedToken) {
@@ -180,10 +182,24 @@ export function useAuth() {
 
   const logout = async () => {
     try {
+      await unregisterDeviceTokenWithBackend();
+    } catch (e) {
+      console.warn('[useAuth] Device unregistration error on logout:', e);
+    }
+    try {
       await apiClient.logout();
     } catch (e) {
       console.warn('[useAuth] Logout error:', e);
-      await clearAuthTokens();
+    }
+    await clearAuthTokens();
+    await clearStoredNotifications();
+    resetDeviceRegistrationSession();
+    try {
+      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+      await AsyncStorage.clear();
+      console.log('[useAuth] Frontend storage completely cleared on logout.');
+    } catch (e) {
+      console.warn('[useAuth] Error clearing storage on logout:', e);
     }
     await supabase.auth.signOut().catch(() => {});
     setSession(null);

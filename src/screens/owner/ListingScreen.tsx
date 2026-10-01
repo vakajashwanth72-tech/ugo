@@ -316,21 +316,8 @@ export default function ListingScreen() {
       // If new cycle: send null
       editing_id: isValidBackendId(activeCycleId) ? activeCycleId : null,
 
-      // Images (snake_case & multi-format support)
-      image: processedImages[0] || null,
-      image_url: processedImages[0] || null,
-      photo: processedImages[0] || null,
-      picture: processedImages[0] || null,
+      // Images: single clean array of Base64 Data URI strings
       images: processedImages,
-      cycle_images: processedImages.map((img, idx) => ({
-        image_url: img,
-        url: img,
-        image: img,
-        display_order: idx + 1,
-      })),
-      image1: processedImages[0] || null,
-      image2: processedImages[1] || null,
-      image3: processedImages[2] || null,
     };
 
     console.log('[ListingScreen] Built cycle listing payload:', {

@@ -102,32 +102,28 @@ export default function ChatScreen() {
     };
   }, [user, otherUserId]);
 
-  // Real-time message subscription
+  // Periodic message polling (replacing Supabase realtime channel)
   useEffect(() => {
     if (!conversationId) return;
 
-    const channel = supabase
-      .channel(`chat-${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `conversation_id=eq.${conversationId}`},
-        (payload) => {
-          const newMsg = payload.new as ChatMessage;
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            return [...prev, newMsg];
-          });
-        }
-      )
-      .subscribe();
+    const pollMessages = async () => {
+      try {
+        const { data: latestMessages, error } = await supabase
+          .from('chat_messages')
+          .select('*')
+          .eq('conversation_id', conversationId)
+          .order('created_at', { ascending: true });
 
-    return () => {
-      supabase.removeChannel(channel);
+        if (!error && latestMessages) {
+          setMessages(latestMessages);
+        }
+      } catch (e) {
+        // silent catch
+      }
     };
+
+    const interval = setInterval(pollMessages, 3000);
+    return () => clearInterval(interval);
   }, [conversationId]);
 
   const handleSendMessage = async () => {

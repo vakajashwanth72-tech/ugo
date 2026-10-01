@@ -1,5 +1,5 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,15 +7,14 @@ import {
   TouchableOpacity,
   Image,
   Alert,
-  ScrollView} from 'react-native';
+  ScrollView,
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
-import { decode } from 'base64-arraybuffer';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
-import { supabase } from '../../lib/supabase';
+import { apiClient } from '../../lib/apiClient';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/Button';
 import { RootStackParamList } from '../../navigation/navigationTypes';
@@ -29,6 +28,7 @@ export default function ReturnScreen() {
   const { bookingId } = route.params;
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [returnSuccess, setReturnSuccess] = useState(false);
   const [returnOtp, setReturnOtp] = useState<string | null>(null);
@@ -37,22 +37,31 @@ export default function ReturnScreen() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Camera Permission', 'Camera access is required to take a return verification photo.');
+        Alert.alert('Camera Permission', 'Camera access is required to take a live return verification photo.');
         return;
       }
 
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: false,
         quality: 0.8,
+        base64: true,
       });
 
       if (!result.canceled && result.assets[0]?.uri) {
         setPhotoUri(result.assets[0].uri);
+        if (result.assets[0].base64) {
+          setPhotoBase64(result.assets[0].base64);
+        }
       }
     } catch (err) {
       console.error('Camera error:', err);
     }
   };
+
+  // When user enters Return screen, automatically launch camera for live image verification
+  useEffect(() => {
+    takePhoto();
+  }, []);
 
   const handleSubmitReturn = async () => {
     if (!photoUri) {
@@ -62,56 +71,34 @@ export default function ReturnScreen() {
 
     setSubmitting(true);
     try {
-      // 1. Convert photo and upload to Supabase return-images bucket
-      const base64 = await FileSystem.readAsStringAsync(photoUri, { encoding: 'base64' });
-      const arrayBuffer = decode(base64);
-      const filePath = `${bookingId}/${Date.now()}_return.jpg`;
+      const cleanBookingId = String(bookingId).replace(/^Bearer\s+/i, '').trim();
+      console.log(`[ReturnScreen] Submitting return for booking ${cleanBookingId} via apiClient.returnCycle...`);
+      // Dispatches PATCH /api/rentals/return-cycle with Authorization access token header and only booking_id and image_url (JPEG) without Bearer
+      const result = await apiClient.returnCycle(cleanBookingId, photoUri, photoBase64 || undefined);
+      console.log('[ReturnScreen] Return-cycle response:', result);
 
-      const { error: uploadErr } = await supabase.storage
-        .from('return-images')
-        .upload(filePath, arrayBuffer, {
-          contentType: 'image/jpeg',
-          upsert: false,
-        });
+      const otpCode =
+        result?.return_otp ||
+        result?.returnOtp ||
+        result?.otp ||
+        result?.otp_code ||
+        result?.data?.return_otp ||
+        result?.data?.returnOtp ||
+        result?.data?.otp ||
+        result?.booking?.return_otp ||
+        null;
 
-      if (uploadErr) {
-        throw new Error('Unable to upload return photo.');
-      }
-
-      const { data: publicUrlData } = supabase.storage
-        .from('return-images')
-        .getPublicUrl(filePath);
-
-      const imageUrl = publicUrlData?.publicUrl;
-
-      // 2. Call n8n return-request webhook
-      const response = await fetch('https://ugonitk.app.n8n.cloud/webhook/return-request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          booking_id: bookingId,
-          image_url: imageUrl,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Return request failed (HTTP ${response.status})`);
-      }
-
-      // 3. Fetch latest booking to display Return OTP
-      const { data: updatedBooking } = await supabase
-        .from('booking_table')
-        .select('return_otp')
-        .eq('id', bookingId)
-        .single();
-
-      if (updatedBooking?.return_otp) {
-        setReturnOtp(updatedBooking.return_otp);
+      if (otpCode) {
+        setReturnOtp(String(otpCode));
       }
 
       setReturnSuccess(true);
     } catch (err: any) {
-      Alert.alert('Return Failed', err.message || 'Unable to submit return request.');
+      console.error('[ReturnScreen] Return error:', err);
+      Alert.alert(
+        'Return Failed',
+        err?.data?.message || err?.message || 'Unable to submit return request. Please check your connection and try again.'
+      );
     } finally {
       setSubmitting(false);
     }
@@ -127,7 +114,9 @@ export default function ReturnScreen() {
           </View>
           <Text style={styles.successTitle}>Return Request Submitted!</Text>
           <Text style={styles.successSubtitle}>
-            Please share this Return OTP with the cycle owner so they can confirm condition and close the rental:
+            {returnOtp
+              ? 'Please share this Return OTP with the cycle owner so they can confirm condition and close the rental:'
+              : 'Your live return verification photo has been successfully submitted to the cycle owner.'}
           </Text>
 
           {returnOtp && (

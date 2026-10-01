@@ -1,5 +1,5 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
-import { apiClient } from '../../lib/apiClient';
+import { apiClient, extractCyclesList } from '../../lib/apiClient';
 import { useAuth } from '../../hooks/useAuth';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/Button';
@@ -33,7 +33,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 export default function BookingDetailScreen() {
   const route = useRoute<BookingDetailRouteProp>();
   const navigation = useNavigation<NavigationProp>();
-  const { cycle } = route.params;
+  const initialCycle = route.params?.cycle || ({} as any);
+  const [cycle, setCycle] = useState<any>(initialCycle);
+  const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
   const { user, profile } = useAuth();
 
   const [hours, setHours] = useState('1');
@@ -41,14 +43,154 @@ export default function BookingDetailScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
+  // Booking placed state & Suggested cycles
+  const [bookingPlaced, setBookingPlaced] = useState(false);
+  const [suggestedCycles, setSuggestedCycles] = useState<any[]>([]);
+  const [loadingSuggested, setLoadingSuggested] = useState(false);
+
+  // Fetch full cycle details from backend GET /api/notifications/viewdetails
+  useEffect(() => {
+    const cycleId =
+      initialCycle?.id ||
+      initialCycle?.cycle_id ||
+      initialCycle?.cycleId ||
+      route.params?.cycleId;
+
+    if (!cycleId) return;
+
+    let isMounted = true;
+    const fetchDetails = async () => {
+      setLoadingDetails(true);
+      try {
+        console.log(`[BookingDetailScreen] Fetching viewdetails via GET /api/notifications/viewdetails/${cycleId}`);
+        const res = await apiClient.getCycleDetails(String(cycleId));
+        console.log(`[BookingDetailScreen] GET /api/notifications/viewdetails/${cycleId} response:`, res);
+        if (!isMounted || !res) return;
+
+        const rawDetail =
+          res.cycle_details ||
+          res.cycle ||
+          res.cycle_data ||
+          res.cycles ||
+          res.data ||
+          res.details ||
+          res;
+
+        const detailImages =
+          res.cycle_images ||
+          res.cycleImages ||
+          res.images ||
+          rawDetail?.cycle_images ||
+          rawDetail?.cycleImages ||
+          rawDetail?.images;
+
+        const mergedImages: string[] = [
+          ...extractCycleImages(rawDetail),
+          ...(Array.isArray(detailImages) ? extractCycleImages(detailImages) : []),
+        ];
+
+        setCycle((prev: any) => ({
+          ...prev,
+          ...rawDetail,
+          id: rawDetail?.id || rawDetail?.cycle_id || prev.id || cycleId,
+          cycle_id: rawDetail?.cycle_id || prev.cycle_id || cycleId,
+          brand: rawDetail?.brand || rawDetail?.cycle_brand || prev.brand || 'Cycle',
+          model: rawDetail?.model || rawDetail?.cycle_model || prev.model || '',
+          price_per_hour: Number(rawDetail?.price_per_hour ?? rawDetail?.hourly_price ?? prev.price_per_hour ?? 10),
+          price_per_day: Number(rawDetail?.price_per_day ?? rawDetail?.daily_price ?? prev.price_per_day ?? 50),
+          hourlyPrice: Number(rawDetail?.price_per_hour ?? rawDetail?.hourly_price ?? prev.hourlyPrice ?? 10),
+          dailyPrice: Number(rawDetail?.price_per_day ?? rawDetail?.daily_price ?? prev.dailyPrice ?? 50),
+          owner_name:
+            rawDetail?.owner_name ||
+            rawDetail?.owner_full_name ||
+            rawDetail?.owner?.full_name ||
+            rawDetail?.owner?.name ||
+            rawDetail?.full_name ||
+            prev.owner_name ||
+            'NITK Owner',
+          location: rawDetail?.location || rawDetail?.hostel || prev.location || 'NITK Campus',
+          rating: Number(rawDetail?.rating ?? prev.rating ?? 5.0),
+          cycle_type: rawDetail?.cycle_type || rawDetail?.type || prev.cycle_type || 'Standard',
+          gear_type: rawDetail?.gear_type || prev.gear_type || 'Non-Geared',
+          frame_size: rawDetail?.frame_size || prev.frame_size || 'Medium',
+          condition: rawDetail?.condition || prev.condition || 'Good',
+          images: mergedImages.length > 0 ? Array.from(new Set(mergedImages)) : prev.images,
+        }));
+      } catch (err: any) {
+        console.warn('[BookingDetailScreen] Could not fetch viewdetails:', err?.message || err);
+      } finally {
+        if (isMounted) setLoadingDetails(false);
+      }
+    };
+
+    fetchDetails();
+    return () => {
+      isMounted = false;
+    };
+  }, [initialCycle?.id, initialCycle?.cycle_id, route.params?.cycleId]);
+
+  // Fetch suggested cycles from backend to display at bottom
+  useEffect(() => {
+    let isMounted = true;
+    const fetchSuggested = async () => {
+      setLoadingSuggested(true);
+      try {
+        const res = await apiClient.getCycles();
+        const rawList = extractCyclesList(res);
+        const currentId = String(cycle?.id || cycle?.cycle_id || initialCycle?.id || '').trim();
+
+        const filtered = rawList
+          .filter((item: any) => {
+            const itemId = String(item.id || item.cycle_id || '').trim();
+            return itemId && itemId !== currentId;
+          })
+          .map((item: any, idx: number) => {
+            const rawStatus = (item.status || item.cycle_status || 'available').toLowerCase().trim();
+            const isAvailable = ['available', 'active', 'true', '1'].includes(rawStatus);
+            const imgs = extractCycleImages(item);
+            return {
+              id: String(item.id || item.cycle_id || `sugg-${idx}`),
+              brand: item.brand || item.make || 'Cycle',
+              model: item.model || '',
+              price_per_hour: Number(item.price_per_hour ?? item.hourlyPrice ?? item.hourly_price ?? 15),
+              price_per_day: Number(item.price_per_day ?? item.dailyPrice ?? item.daily_price ?? 100),
+              rating: Number(item.rating ?? 4.8),
+              location: item.location || item.hostel || 'NITK Campus',
+              image: imgs[0] || item.image || null,
+              images: imgs,
+              geared: Boolean(item.geared || item.cycle_type?.toLowerCase().includes('gear')),
+              isAvailable,
+              ...item,
+            };
+          });
+
+        if (isMounted) {
+          // Prioritize available cycles and take up to 6
+          const sorted = filtered
+            .sort((a, b) => (b.isAvailable ? 1 : 0) - (a.isAvailable ? 1 : 0) || b.rating - a.rating)
+            .slice(0, 6);
+          setSuggestedCycles(sorted);
+        }
+      } catch (e) {
+        console.warn('[BookingDetailScreen] Could not load suggested cycles:', e);
+      } finally {
+        if (isMounted) setLoadingSuggested(false);
+      }
+    };
+
+    fetchSuggested();
+    return () => {
+      isMounted = false;
+    };
+  }, [cycle?.id, cycle?.cycle_id, initialCycle?.id]);
+
   const ownerName =
     cycle.owner_name ||
     cycle.ownerName ||
-    (cycle as any).owner?.name ||
-    (cycle as any).owner?.full_name ||
-    (cycle as any).owner_full_name ||
+    cycle.owner?.name ||
+    cycle.owner?.full_name ||
+    cycle.owner_full_name ||
     'NITK Owner';
-
 
   const numericHours = Math.max(0, parseInt(hours, 10) || 0);
   const numericDays = Math.max(0, parseInt(days, 10) || 0);
@@ -133,19 +275,24 @@ export default function BookingDetailScreen() {
         res?.status ||
         'Booking request submitted successfully!';
 
+      setBookingPlaced(true);
+
       Alert.alert(
-        'Booking Request',
+        'Booking Request Placed 🎉',
         String(messageFromBackend),
         [
           {
-            text: 'View Ongoing Rentals',
-            onPress: () => navigation.navigate('OngoingRentals'),
+            text: 'View Booking History',
+            onPress: () => navigation.navigate('BookingHistory'),
           },
           {
             text: 'OK',
-            style: 'cancel',
+            onPress: () => navigation.navigate('BookingHistory'),
           },
-        ]
+        ],
+        {
+          onDismiss: () => navigation.navigate('BookingHistory'),
+        }
       );
     } catch (err: any) {
       const errorMsg =
@@ -166,8 +313,8 @@ export default function BookingDetailScreen() {
         title="Cycle Details"
         showBack
         rightAction={{
-          icon: 'chatbubble-ellipses-outline',
-          onPress: () => navigation.navigate('OngoingRentals')}}
+          icon: 'time-outline',
+          onPress: () => navigation.navigate('BookingHistory')}}
       />
 
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
@@ -388,13 +535,109 @@ export default function BookingDetailScreen() {
 
           {/* Request Button */}
           <Button
-            title={`Request Booking • ₹${totalPrice}`}
+            title={bookingPlaced ? 'Request Placed • Waiting for Owner' : `Request Booking • ₹${totalPrice}`}
             onPress={handleBooking}
             loading={submitting}
             size="lg"
-            variant="accent"
-            icon="send"
+            variant={bookingPlaced ? 'outline' : 'accent'}
+            icon={bookingPlaced ? 'checkmark-circle' : 'send'}
+            disabled={bookingPlaced}
           />
+
+          {/* Booking Placed Success Notice */}
+          {bookingPlaced && (
+            <View style={styles.placedSuccessCard}>
+              <View style={styles.placedSuccessHeader}>
+                <Ionicons name="checkmark-circle" size={22} color="#059669" />
+                <Text style={styles.placedSuccessTitle}>Booking Request Placed! 🎉</Text>
+              </View>
+              <Text style={styles.placedSuccessMsg}>
+                Your request has been submitted to the owner. You will receive a notification with your Pickup OTP as soon as the owner accepts.
+              </Text>
+              <TouchableOpacity
+                style={styles.placedOngoingBtn}
+                onPress={() => navigation.navigate('BookingHistory')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="time-outline" size={16} color={colors.white} />
+                <Text style={styles.placedOngoingBtnText}>View in Booking History</Text>
+                <Ionicons name="chevron-forward" size={14} color={colors.white} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Suggested More Cycles Section */}
+          <View style={styles.suggestedSection}>
+            <View style={styles.suggestedHeader}>
+              <View style={styles.suggestedHeaderLeft}>
+                <Ionicons name="sparkles" size={18} color={colors.accent} />
+                <Text style={styles.suggestedTitle}>
+                  {bookingPlaced ? 'Explore More Campus Cycles' : 'Suggested More Cycles'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => navigation.navigate('Home')}>
+                <Text style={styles.seeAllText}>View All</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.suggestedSubtitle}>
+              {bookingPlaced
+                ? 'Need a cycle for a friend or want to explore other options? Browse more available rides:'
+                : 'Compare with other popular verified rides across campus:'}
+            </Text>
+
+            {loadingSuggested ? (
+              <ActivityIndicator size="small" color={colors.accent} style={{ marginVertical: 20 }} />
+            ) : suggestedCycles.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.suggestedListContainer}
+              >
+                {suggestedCycles.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.suggestedCard}
+                    onPress={() => {
+                      navigation.push('BookingDetail', { cycle: item, cycleId: item.id });
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Image
+                      source={{ uri: getCycleImageUrl(item.image || (item.images && item.images[0])) }}
+                      style={styles.suggestedThumb}
+                    />
+                    <View style={styles.suggestedCardBody}>
+                      <Text style={styles.suggestedBrand} numberOfLines={1}>
+                        {item.brand} {item.model}
+                      </Text>
+                      <View style={styles.suggestedLocationRow}>
+                        <Ionicons name="location-outline" size={12} color={colors.textSecondary} />
+                        <Text style={styles.suggestedLocation} numberOfLines={1}>
+                          {item.location}
+                        </Text>
+                      </View>
+                      <View style={styles.suggestedPriceRow}>
+                        <Text style={styles.suggestedPrice}>₹{item.price_per_hour}/hr</Text>
+                        {item.rating > 0 && (
+                          <View style={styles.suggestedRating}>
+                            <Ionicons name="star" size={11} color="#EAB308" />
+                            <Text style={styles.suggestedRatingText}>{item.rating.toFixed(1)}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.suggestedViewBtn}>
+                        <Text style={styles.suggestedViewBtnText}>View Ride</Text>
+                        <Ionicons name="chevron-forward" size={12} color={colors.primary} />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={styles.noSuggestedText}>No other cycles currently listed.</Text>
+            )}
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -639,5 +882,160 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     flex: 1,
     lineHeight: 18,
+  },
+  placedSuccessCard: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginTop: spacing.md,
+    borderWidth: 1.5,
+    borderColor: '#10B981',
+    ...shadows.sm,
+  },
+  placedSuccessHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  placedSuccessTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  placedSuccessMsg: {
+    fontSize: 13,
+    color: '#047857',
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  placedOngoingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#059669',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: borderRadius.md,
+    gap: 6,
+  },
+  placedOngoingBtnText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  suggestedSection: {
+    marginTop: spacing.xl,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+  },
+  suggestedHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  suggestedHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  suggestedTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  seeAllText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  suggestedSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+    lineHeight: 16,
+  },
+  suggestedListContainer: {
+    paddingRight: spacing.md,
+    gap: 12,
+  },
+  suggestedCard: {
+    width: 175,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadows.sm,
+  },
+  suggestedThumb: {
+    width: '100%',
+    height: 105,
+    backgroundColor: colors.surfaceLight,
+  },
+  suggestedCardBody: {
+    padding: 10,
+  },
+  suggestedBrand: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 3,
+  },
+  suggestedLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 6,
+  },
+  suggestedLocation: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    flex: 1,
+  },
+  suggestedPriceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  suggestedPrice: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.accent,
+  },
+  suggestedRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  suggestedRatingText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  suggestedViewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceLight,
+    paddingVertical: 6,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    gap: 4,
+  },
+  suggestedViewBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  noSuggestedText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+    paddingVertical: 10,
   },
 });

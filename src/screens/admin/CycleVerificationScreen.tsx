@@ -63,35 +63,153 @@ export default function CycleVerificationScreen() {
 
   useEffect(() => {
     const fetchCycleData = async () => {
+      if (!initialCycle) {
+        setLoading(true);
+      }
       try {
-        const { data: cycleData, error: cycleErr } = await supabase
-          .from('cycles')
-          .select(`
-            *,
-            cycle_images (image_url, storage_path, display_order)
-          `)
-          .eq('id', cycleId)
-          .single();
+        if (!cycleId) {
+          setLoading(false);
+          return;
+        }
+        console.log(`[CycleVerificationScreen] Fetching cycle details via GET /api/notifications/viewdetails/${cycleId}`);
+        const res = await apiClient.getCycleDetails(cycleId);
+        console.log('[CycleVerificationScreen] getCycleDetails response:', res);
 
-        if (cycleErr) throw cycleErr;
-        setCycle(cycleData);
+        // Expected backend response:
+        // { success: true, cycle_details: cycle_data.rows[0], cycle_images: cycle_images.rows[0] }
+        const details =
+          res?.cycle_details ||
+          res?.cycle ||
+          res?.cycle_data ||
+          res?.data ||
+          res?.details ||
+          res;
 
-        // Fetch owner details
-        if (cycleData.owner_id) {
-          const { data: ownerProfile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', cycleData.owner_id)
-            .single();
+        const rawImages =
+          res?.cycle_images ||
+          res?.cycleImages ||
+          details?.cycle_images ||
+          details?.cycleImages ||
+          details?.images;
 
-          setOwner(ownerProfile);
+        setCycle(details);
+
+        // Extract Owner details from cycle_details
+        const extractedOwnerName =
+          details?.owner_name ||
+          details?.owner ||
+          details?.full_name ||
+          details?.name ||
+          details?.student_name ||
+          details?.user_name;
+
+        const extractedEmail =
+          details?.email ||
+          details?.owner_email ||
+          details?.user_email;
+
+        const extractedPhone =
+          details?.phone ||
+          details?.owner_phone ||
+          details?.phone_number ||
+          details?.contact;
+
+        const extractedLocation =
+          details?.hostel ||
+          details?.location ||
+          details?.address;
+
+        if (extractedOwnerName) {
+          setOwner({
+            full_name: extractedOwnerName,
+            email: extractedEmail || '',
+            phone: extractedPhone || '',
+            hostel: extractedLocation || 'NITK Campus',
+          });
+        } else if (details?.owner_id) {
+          // Fallback: fetch profile from Supabase if owner name wasn't joined directly
+          try {
+            const { data: ownerProfile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', details.owner_id)
+              .single();
+
+            if (ownerProfile) {
+              setOwner(ownerProfile);
+            }
+          } catch (profileErr) {
+            console.warn('[CycleVerificationScreen] Profile fetch note:', profileErr);
+          }
         }
 
-        // Fetch images with robust URL resolution
-        const urls = extractCycleImages(cycleData);
-        setImages(urls);
-      } catch (err) {
-        console.error('Error fetching cycle for review:', err);
+        // Collect and normalize all images
+        const collected: string[] = [];
+
+        if (rawImages) {
+          if (Array.isArray(rawImages)) {
+            collected.push(...extractCycleImages(rawImages));
+          } else if (typeof rawImages === 'object') {
+            const candidateKeys = [
+              'image_url',
+              'imageUrl',
+              'url',
+              'image',
+              'storage_path',
+              'storagePath',
+              'image1',
+              'image2',
+              'image3',
+              'photo',
+              'picture',
+            ];
+            for (const k of candidateKeys) {
+              if (rawImages[k]) {
+                const u = getCycleImageUrl(rawImages[k]);
+                if (u && !collected.includes(u)) collected.push(u);
+              }
+            }
+            collected.push(...extractCycleImages(rawImages));
+          } else if (typeof rawImages === 'string') {
+            const u = getCycleImageUrl(rawImages);
+            if (u) collected.push(u);
+          }
+        }
+
+        if (details) {
+          collected.push(...extractCycleImages(details));
+        }
+
+        const uniqueUrls = Array.from(new Set(collected.filter(Boolean)));
+        setImages(uniqueUrls);
+      } catch (err: any) {
+        console.error('[CycleVerificationScreen] Error fetching cycle details:', err?.message || err);
+        // Secondary fallback to Supabase
+        try {
+          const { data: cycleData, error: cycleErr } = await supabase
+            .from('cycles')
+            .select(`
+              *,
+              cycle_images (image_url, storage_path, display_order)
+            `)
+            .eq('id', cycleId)
+            .single();
+
+          if (!cycleErr && cycleData) {
+            setCycle(cycleData);
+            if (cycleData.owner_id) {
+              const { data: ownerProfile } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', cycleData.owner_id)
+                .single();
+              if (ownerProfile) setOwner(ownerProfile);
+            }
+            setImages(extractCycleImages(cycleData));
+          }
+        } catch (sbErr) {
+          console.error('[CycleVerificationScreen] Fallback fetch error:', sbErr);
+        }
       } finally {
         setLoading(false);
       }
@@ -100,32 +218,56 @@ export default function CycleVerificationScreen() {
     fetchCycleData();
   }, [cycleId]);
 
-  const handleDecision = async (decision: 'approved' | 'rejected') => {
-    if (decision === 'rejected' && !reason.trim()) {
+  const handleDecision = async (decision: 'accept' | 'reject' | 'approved' | 'rejected') => {
+    const isReject = decision === 'rejected' || decision === 'reject';
+    if (isReject && !reason.trim()) {
       Alert.alert('Reason Required', 'Please enter a rejection reason to inform the student.');
       return;
     }
 
     setSubmitting(true);
     try {
-      // Connect to traditional backend with notification/cycleverification
-      // Access tokens sent through Authorization header, with { reason, status, cycle_id }
+      const statusToSend = isReject ? 'rejected' : 'approved';
+      const newStatus = statusToSend === 'approved' ? 'available' : 'rejected';
+      const isVerified = statusToSend === 'approved';
+
+      console.log(`[CycleVerificationScreen] Submitting verification decision: status=${statusToSend}, cycle_id=${cycleId}, reason=${reason}`);
+
+      // 1. Dispatch POST request to /api/cycles/cycle-verification via apiClient
       const res = await apiClient.verifyCycleListing({
         cycle_id: cycleId,
-        status: decision,
+        status: statusToSend,
         reason: reason.trim(),
       });
+      console.log('[CycleVerificationScreen] Backend verify listing response:', res);
+
+      // 2. Also keep Supabase updated if available
+      try {
+        const { error: updateErr } = await supabase
+          .from('cycles')
+          .update({
+            status: newStatus,
+            is_verified: isVerified,
+            verification_notes: reason.trim() || null,
+          })
+          .eq('id', cycleId);
+
+        if (updateErr) {
+          console.warn('[CycleVerificationScreen] Supabase update note:', updateErr.message);
+        }
+      } catch (sbErr) {
+        console.warn('[CycleVerificationScreen] Supabase update exception:', sbErr);
+      }
 
       const message =
         res?.message ||
         res?.data?.message ||
-        (typeof res === 'string' ? res : null) ||
-        (decision === 'approved'
+        (statusToSend === 'approved'
           ? 'This cycle is now verified and active in the campus rental feed.'
           : 'The student will receive your feedback regarding why the listing was rejected.');
 
       Alert.alert(
-        decision === 'approved' ? 'Cycle Approved! ✅' : 'Cycle Rejected',
+        statusToSend === 'approved' ? 'Cycle Approved! ✅' : 'Cycle Rejected',
         message,
         [{ text: 'Done', onPress: () => navigation.goBack() }]
       );
@@ -254,10 +396,10 @@ export default function CycleVerificationScreen() {
             <Text style={styles.descriptionText}>{cycle.description}</Text>
           ) : null}
 
-          {/* Rejection reason box */}
+          {/* Rejection / Acceptance reason box */}
           <Input
-            label="Rejection Reason (if declining)"
-            placeholder="e.g. Unclear photos, incorrect hostel location, damaged chain..."
+            label="Verification Reason / Feedback"
+            placeholder="e.g. Photos clear and cycle condition verified, or rejection explanation..."
             value={reason}
             onChangeText={setReason}
             multiline
@@ -266,15 +408,15 @@ export default function CycleVerificationScreen() {
           <View style={styles.actionRow}>
             <Button
               title="Reject Cycle"
-              onPress={() => handleDecision('rejected')}
+              onPress={() => handleDecision('reject')}
               variant="danger"
               style={{ flex: 1 }}
               loading={submitting}
             />
 
             <Button
-              title="Approve Cycle"
-              onPress={() => handleDecision('approved')}
+              title="Accept Cycle"
+              onPress={() => handleDecision('accept')}
               variant="accent"
               style={{ flex: 1 }}
               loading={submitting}

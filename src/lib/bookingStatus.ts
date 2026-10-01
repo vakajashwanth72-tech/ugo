@@ -6,6 +6,7 @@ export type BookingStatus =
   | 'payment_pending'
   | 'active'
   | 'return_pending'
+  | 'return_requested'
   | 'completed'
   | 'cancelled'
   | 'rejected';
@@ -32,7 +33,8 @@ export const canChatOrCall = (status: BookingStatus | string): boolean => {
     s === 'slot_booked' ||
     s === 'payment_pending' ||
     s === 'active' ||
-    s === 'return_pending'
+    s === 'return_pending' ||
+    s === 'return_requested'
   );
 };
 
@@ -41,7 +43,8 @@ export const canChatOrCall = (status: BookingStatus | string): boolean => {
  * Pre-payment states ('slot_booked', 'payment_pending') do NOT tick the ride duration countdown.
  */
 export const isTimerRunning = (status: BookingStatus | string): boolean => {
-  return String(status || '').toLowerCase() === 'active';
+  const s = String(status || '').toLowerCase();
+  return s === 'active' || s === 'return_requested' || s === 'return_pending';
 };
 
 export interface StatusMeta {
@@ -76,11 +79,12 @@ export const getStatusMeta = (status: BookingStatus | string): StatusMeta => {
         description: 'Ride in progress. Duration countdown is ticking.',
       };
     case 'return_pending':
+    case 'return_requested':
       return {
-        label: 'Return Processing',
+        label: 'Return Requested',
         color: '#8B5CF6',
         bgColor: 'rgba(139, 92, 246, 0.1)',
-        description: 'Cycle parked. Return photo submitted and pending OTP verification.',
+        description: 'Return requested! Awaiting return OTP verification.',
       };
     case 'completed':
       return {

@@ -19,6 +19,7 @@ import Header from '../../components/ui/Header';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import { RootStackParamList } from '../../navigation/navigationTypes';
+import { isValidNitkEmail } from '../../lib/validation';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type ForgotPasswordRouteProp = RouteProp<RootStackParamList, 'ForgotPassword'>;
@@ -38,8 +39,8 @@ export default function ForgotPasswordScreen() {
       return;
     }
 
-    if (!cleanEmail.includes('@')) {
-      setError('Please enter a valid email address.');
+    if (!isValidNitkEmail(cleanEmail)) {
+      setError('Please enter a valid NITK email address ending with .nitk.edu.in');
       return;
     }
 
@@ -132,6 +133,35 @@ export default function ForgotPasswordScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
             />
+
+            <View style={styles.emailConstraintBox}>
+              <Ionicons
+                name={
+                  email.trim().length === 0
+                    ? 'information-circle-outline'
+                    : isValidNitkEmail(email.trim())
+                    ? 'checkmark-circle'
+                    : 'alert-circle-outline'
+                }
+                size={14}
+                color={
+                  email.trim().length === 0
+                    ? colors.textSecondary
+                    : isValidNitkEmail(email.trim())
+                    ? '#10B981'
+                    : colors.danger
+                }
+              />
+              <Text
+                style={[
+                  styles.emailConstraintText,
+                  email.trim().length > 0 && isValidNitkEmail(email.trim()) && styles.emailConstraintValid,
+                  email.trim().length > 0 && !isValidNitkEmail(email.trim()) && styles.emailConstraintInvalid,
+                ]}
+              >
+                Only .nitk.edu.in email addresses are allowed
+              </Text>
+            </View>
 
             <Button
               title="Send Verification OTP"
@@ -233,5 +263,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.primary,
     fontWeight: '600',
+  },
+  emailConstraintBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: -8,
+    marginBottom: spacing.md,
+    paddingHorizontal: 2,
+  },
+  emailConstraintText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  emailConstraintValid: {
+    color: '#065F46',
+    fontWeight: '600',
+  },
+  emailConstraintInvalid: {
+    color: colors.danger,
+    fontWeight: '500',
   },
 });

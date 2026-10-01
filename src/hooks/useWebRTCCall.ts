@@ -71,22 +71,21 @@ export function useWebRTCCall(userId: string | undefined) {
     setCallDuration(0);
   }, []);
 
-  // Listen for incoming call sessions and status changes
+  // Listen for incoming call sessions and status changes (no realtime channel)
   useEffect(() => {
     if (!userId) return;
 
-    const channel = supabase
-      .channel(`user-calls-${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'call_sessions',
-          filter: `callee_id=eq.${userId}`,
-        },
-        (payload) => {
-          const session = payload.new as CallSession;
+    const checkIncoming = async () => {
+      try {
+        const { data: session } = await supabase
+          .from('call_sessions')
+          .select('*')
+          .eq('callee_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (session) {
           if (session.status === 'ringing' && callState === 'idle') {
             setCurrentSession(session);
             setCallState('incoming');
@@ -94,12 +93,11 @@ export function useWebRTCCall(userId: string | undefined) {
             cleanupCall();
           }
         }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
+      } catch {}
     };
+
+    const interval = setInterval(checkIncoming, 5000);
+    return () => clearInterval(interval);
   }, [userId, callState, cleanupCall]);
 
   // Start outgoing call
@@ -125,19 +123,16 @@ export function useWebRTCCall(userId: string | undefined) {
         if (sessErr || !session) throw sessErr || new Error('Failed to create call session');
         setCurrentSession(session);
 
-        // Listen for session updates (callee accepted or rejected)
-        supabase
-          .channel(`session-status-${session.id}`)
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'call_sessions',
-              filter: `id=eq.${session.id}`,
-            },
-            (payload) => {
-              const updated = payload.new as CallSession;
+        // Listen for session updates (callee accepted or rejected) via polling
+        const sessionInterval = setInterval(async () => {
+          try {
+            const { data: updated } = await supabase
+              .from('call_sessions')
+              .select('*')
+              .eq('id', session.id)
+              .maybeSingle();
+
+            if (updated) {
               if (updated.status === 'connected') {
                 setCallState('connected');
                 if (!timerRef.current) {
@@ -146,11 +141,12 @@ export function useWebRTCCall(userId: string | undefined) {
                   }, 1000);
                 }
               } else if (updated.status === 'ended' || updated.status === 'rejected') {
+                clearInterval(sessionInterval);
                 cleanupCall();
               }
             }
-          )
-          .subscribe();
+          } catch {}
+        }, 3000);
 
         // 2. Setup local audio stream if native WebRTC is available
         let stream: any = null;
@@ -196,36 +192,33 @@ export function useWebRTCCall(userId: string | undefined) {
             payload: offer,
           });
 
-          // 5. Listen for answer & remote candidates
-          supabase
-            .channel(`signals-${session.id}`)
-            .on(
-              'postgres_changes',
-              {
-                event: 'INSERT',
-                schema: 'public',
-                table: 'call_signals',
-                filter: `session_id=eq.${session.id}`,
-              },
-              async (p) => {
-                const signal = p.new;
-                if (signal.sender_id === userId) return;
+          // 5. Check for answer & remote candidates via polling
+          const signalsInterval = setInterval(async () => {
+            try {
+              const { data: signals } = await supabase
+                .from('call_signals')
+                .select('*')
+                .eq('session_id', session.id)
+                .neq('sender_id', userId)
+                .order('created_at', { ascending: true });
 
-                if (signal.type === 'answer' && RTCSessionDescription) {
-                  await pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
-                  setCallState('connected');
-
-                  if (!timerRef.current) {
-                    timerRef.current = setInterval(() => {
-                      setCallDuration((prev) => prev + 1);
-                    }, 1000);
+              if (signals && signals.length > 0) {
+                for (const signal of signals) {
+                  if (signal.type === 'answer' && RTCSessionDescription && !pc.remoteDescription) {
+                    await pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
+                    setCallState('connected');
+                    if (!timerRef.current) {
+                      timerRef.current = setInterval(() => {
+                        setCallDuration((prev) => prev + 1);
+                      }, 1000);
+                    }
+                  } else if (signal.type === 'candidate' && signal.payload && RTCIceCandidate) {
+                    await pc.addIceCandidate(new RTCIceCandidate(signal.payload));
                   }
-                } else if (signal.type === 'candidate' && signal.payload && RTCIceCandidate) {
-                  await pc.addIceCandidate(new RTCIceCandidate(signal.payload));
                 }
               }
-            )
-            .subscribe();
+            } catch {}
+          }, 2000);
         }
       } catch (err: any) {
         Alert.alert('Call Failed', err.message || 'Unable to place audio call.');

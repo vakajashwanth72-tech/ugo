@@ -34,6 +34,8 @@ export default function RentalBottomNav({ activeTab }: RentalBottomNavProps) {
   ];
 
   const handleTabPress = async (tab: typeof tabs[0]) => {
+    if (activeTab === tab.key) return;
+
     if (tab.key !== 'home') {
       const token = await getAccessToken();
       if (!token && !user) {

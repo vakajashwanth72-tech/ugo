@@ -14,6 +14,7 @@ export default ({ config }: any): any => ({
   },
   android: {
     package: 'in.ugo.nitk.mobile',
+    googleServicesFile: './google-services.json',
     adaptiveIcon: {
       foregroundImage: './assets/app_logo.png',
       backgroundColor: '#0A192F',
@@ -25,6 +26,8 @@ export default ({ config }: any): any => ({
       'INTERNET',
       'MODIFY_AUDIO_SETTINGS',
       'ACCESS_NETWORK_STATE',
+      'VIBRATE',
+      'WAKE_LOCK',
     ],
   },
   ios: {

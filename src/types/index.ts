@@ -5,6 +5,8 @@ export type BookingStatus =
   | 'payment_pending'
   | 'active'
   | 'return_pending'
+  | 'return_requested'
+  | 'return_accepted'
   | 'completed'
   | 'cancelled'
   | 'rejected'
@@ -42,9 +44,10 @@ export interface Cycle {
   hourlyPrice?: number;
   dailyPrice?: number;
   location: string;
-  status: 'available' | 'unavailable' | 'active' | 'inactive' | 'maintenance';
+  status: 'available' | 'unavailable' | 'active' | 'inactive' | 'maintenance' | 'rented';
   is_verified: boolean;
   geared?: boolean;
+  gear_type?: string;
   condition?: string;
   cycle_type?: string;
   description?: string;
@@ -52,6 +55,7 @@ export interface Cycle {
   image?: string | null;
   images?: string[];
   created_at?: string;
+  updated_at?: string;
   cycle_images?: CycleImage[];
   latitude?: number | null;
   longitude?: number | null;
@@ -94,10 +98,20 @@ export interface Booking {
   other_user_phone?: string;
   owner_profile?: Profile | null;
   renter_profile?: Profile | null;
+  cycle_type?: string;
+  condition?: string;
+  rating?: number;
+  description?: string;
+  brand?: string;
+  model?: string;
+  images?: string[];
+  owner_name?: string;
+  is_owner?: boolean;
 }
 
 export interface NotificationItem {
   id: string;
+  booking_id?: string;
   user_id: string;
   title: string;
   message: string;
@@ -106,6 +120,8 @@ export interface NotificationItem {
   action_data: any;
   payload?: any;
   payload_response?: any;
+  expiry_time?: string | number | null;
+  expires_at?: string | number | null;
   is_read: boolean;
   created_at: string;
 }

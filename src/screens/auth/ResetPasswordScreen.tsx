@@ -19,6 +19,8 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../lib/th
 import Header from '../../components/ui/Header';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
+import PasswordRequirements from '../../components/ui/PasswordRequirements';
+import { getPasswordValidation, getPasswordErrorMessage } from '../../lib/validation';
 import { RootStackParamList } from '../../navigation/navigationTypes';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -44,8 +46,10 @@ export default function ResetPasswordScreen() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.');
+    // Validate password constraints: capital, small, digit, special character, length
+    const passValidation = getPasswordValidation(password);
+    if (!passValidation.isValid) {
+      setError(getPasswordErrorMessage(passValidation) || 'Password does not meet security requirements.');
       return;
     }
 
@@ -142,6 +146,8 @@ export default function ResetPasswordScreen() {
               isPassword
             />
 
+            <PasswordRequirements password={password} showAlways={true} />
+
             <Input
               label="Confirm New Password"
               placeholder="Re-enter your new password"
@@ -152,6 +158,24 @@ export default function ResetPasswordScreen() {
               }}
               isPassword
             />
+
+            {confirmPassword.length > 0 && (
+              <View style={styles.passwordMatchNotice}>
+                <Ionicons
+                  name={password === confirmPassword ? 'checkmark-circle' : 'alert-circle-outline'}
+                  size={14}
+                  color={password === confirmPassword ? '#10B981' : colors.danger}
+                />
+                <Text
+                  style={[
+                    styles.passwordMatchNoticeText,
+                    password === confirmPassword ? styles.passwordMatchValid : styles.passwordMatchInvalid,
+                  ]}
+                >
+                  {password === confirmPassword ? 'Passwords match' : 'Passwords do not match'}
+                </Text>
+              </View>
+            )}
 
             <Button
               title="Update Password"
@@ -231,6 +255,25 @@ const styles = StyleSheet.create({
     flex: 1,
     color: colors.danger,
     fontSize: typography.caption.fontSize,
+    fontWeight: '500',
+  },
+  passwordMatchNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: -8,
+    marginBottom: spacing.md,
+    paddingHorizontal: 2,
+  },
+  passwordMatchNoticeText: {
+    fontSize: 12,
+  },
+  passwordMatchValid: {
+    color: '#065F46',
+    fontWeight: '600',
+  },
+  passwordMatchInvalid: {
+    color: colors.danger,
     fontWeight: '500',
   },
 });

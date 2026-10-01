@@ -129,6 +129,7 @@ export async function clearAuthTokens(): Promise<void> {
     await AsyncStorage.removeItem(RECOVERY_TOKEN_KEY).catch(() => {});
     await AsyncStorage.removeItem(TEMP_TOKEN_KEY).catch(() => {});
     await AsyncStorage.removeItem(USER_DATA_KEY).catch(() => {});
+    await AsyncStorage.clear().catch(() => {});
   } catch (err) {
     console.error('[SecureStorage] Error clearing tokens:', err);
   }

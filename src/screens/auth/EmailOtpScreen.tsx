@@ -19,6 +19,7 @@ import { colors, spacing, typography, borderRadius, shadows } from '../../lib/th
 import Button from '../../components/ui/Button';
 import { apiClient } from '../../lib/apiClient';
 import { saveAuthTokens } from '../../lib/secureStorage';
+import { registerDeviceTokenWithBackend } from '../../lib/pushNotifications';
 import { RootStackParamList } from '../../navigation/navigationTypes';
 
 type RouteProps = RouteProp<RootStackParamList, 'EmailOtp'>;
@@ -245,6 +246,11 @@ export default function EmailOtpScreen() {
           await saveAuthTokens(accessToken, recoveryToken, {
             email,
             full_name: fullName,
+          });
+
+          // Register device FCM token in background upon successful email OTP verification
+          registerDeviceTokenWithBackend().catch((err) => {
+            console.warn('[EmailOtpScreen] FCM device registration note:', err?.message || err);
           });
 
           Alert.alert(
