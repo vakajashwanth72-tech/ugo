@@ -16,6 +16,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { apiClient } from '../../lib/apiClient';
 import { saveAuthTokens } from '../../lib/secureStorage';
 import { registerDeviceTokenWithBackend } from '../../lib/pushNotifications';
+import { connectSocket } from '../../lib/socket';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
@@ -94,7 +95,8 @@ export default function LoginScreen() {
         role: userRole,
       });
 
-      // Register device FCM token in background upon successful login
+      // Connect real-time WebSocket and register device FCM token upon successful login
+      connectSocket(accessToken);
       registerDeviceTokenWithBackend().catch((err) => {
         console.warn('[LoginScreen] FCM device registration note:', err?.message || err);
       });
@@ -216,10 +218,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.xl},
   logo: {
-    width: 84,
-    height: 84,
-    borderRadius: 20,
-    marginBottom: spacing.sm},
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    marginBottom: spacing.sm,
+  },
   title: {
     fontSize: typography.h1.fontSize,
     fontWeight: '900',

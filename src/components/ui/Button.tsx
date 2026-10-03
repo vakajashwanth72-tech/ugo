@@ -87,7 +87,7 @@ export default function Button({
     >
       {loading ? (
         <ActivityIndicator
-          color={variant === 'accent' ? colors.primary : colors.white}
+          color={variant === 'outline' || variant === 'secondary' ? colors.primary : colors.white}
           size="small"
         />
       ) : (
@@ -97,10 +97,8 @@ export default function Button({
               name={icon}
               size={18}
               color={
-                variant === 'accent'
+                variant === 'outline' || variant === 'secondary'
                   ? colors.primary
-                  : variant === 'outline'
-                  ? colors.textPrimary
                   : colors.white
               }
             />
@@ -141,9 +139,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
   },
   btnSecondary: {
-    backgroundColor: colors.surfaceLight,
+    backgroundColor: colors.primaryLight,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.surfaceBorder,
   },
   btnDanger: {
     backgroundColor: colors.danger,
@@ -151,7 +149,7 @@ const styles = StyleSheet.create({
   btnOutline: {
     backgroundColor: 'transparent',
     borderWidth: 1.5,
-    borderColor: colors.border,
+    borderColor: colors.primary,
   },
   disabled: {
     opacity: 0.5,
@@ -164,12 +162,12 @@ const styles = StyleSheet.create({
     color: colors.white,
   },
   textAccent: {
-    color: colors.primary,
+    color: colors.white,
   },
   textSecondary: {
-    color: colors.textPrimary,
+    color: colors.primary,
   },
   textOutline: {
-    color: colors.textPrimary,
+    color: colors.primary,
   },
 });

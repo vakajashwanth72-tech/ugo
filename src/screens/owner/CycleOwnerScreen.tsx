@@ -49,6 +49,33 @@ const formatListingDate = (dateStr: string | null | undefined): string => {
   }
 };
 
+export const checkIsPendingVerification = (cycle: any): boolean => {
+  if (!cycle) return false;
+  const isVerified =
+    cycle.is_verified === true ||
+    cycle.isVerified === true ||
+    cycle.verified === true ||
+    String(cycle.is_verified || '').toLowerCase() === 'true' ||
+    String(cycle.verification_status || cycle.verificationStatus || '').toLowerCase() === 'approved' ||
+    String(cycle.verification_status || cycle.verificationStatus || '').toLowerCase() === 'verified';
+
+  if (!isVerified) return true;
+
+  const rawStatus = String(
+    cycle.status ||
+    cycle.cycle_status ||
+    cycle.raw_status ||
+    ''
+  ).toLowerCase().trim();
+
+  return (
+    rawStatus.includes('pending') ||
+    rawStatus.includes('verification') ||
+    rawStatus === 'under_review' ||
+    rawStatus === 'review'
+  );
+};
+
 export default function CycleOwnerScreen() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<any>();
@@ -203,13 +230,8 @@ export default function CycleOwnerScreen() {
 
         const primaryImage = imageUrls.length > 0 ? imageUrls[0] : null;
 
-        const isVerified =
-          cycle.is_verified === true ||
-          cycle.isVerified === true ||
-          cycle.verified === true ||
-          String(cycle.is_verified || '').toLowerCase() === 'true' ||
-          String(cycle.verification_status || cycle.verificationStatus || '').toLowerCase() === 'approved' ||
-          String(cycle.verification_status || cycle.verificationStatus || '').toLowerCase() === 'verified';
+        const isPending = checkIsPendingVerification(cycle);
+        const isVerified = !isPending;
 
         const rawStatus = String(
           cycle.status ||
@@ -218,8 +240,14 @@ export default function CycleOwnerScreen() {
           'available'
         ).toLowerCase().trim();
 
-        const isAvailable = ['available', 'active', 'true', '1'].includes(rawStatus);
-        const status = isAvailable ? 'available' : rawStatus === 'rented' ? 'rented' : 'unavailable';
+        const isAvailable = !isPending && ['available', 'active', 'true', '1'].includes(rawStatus);
+        const status = isPending
+          ? 'pending_verification'
+          : isAvailable
+          ? 'available'
+          : rawStatus === 'rented'
+          ? 'rented'
+          : 'unavailable';
 
         const hourlyPrice = Number(
           cycle.price_per_hour ??
@@ -268,6 +296,7 @@ export default function CycleOwnerScreen() {
           price_per_hour: hourlyPrice,
           price_per_day: dailyPrice,
           status,
+          raw_status: isPending ? 'pending_verification' : rawStatus,
           is_verified: isVerified,
           is_active: isAvailable,
           image: primaryImage,
@@ -313,6 +342,14 @@ export default function CycleOwnerScreen() {
   };
 
   const toggleCycleAvailability = async (cycle: Cycle) => {
+    if (checkIsPendingVerification(cycle)) {
+      Alert.alert(
+        'Verification in Progress ⏳',
+        'Cycle is in verification process. Once completed, we will notify you and you can start lending your cycle.'
+      );
+      return;
+    }
+
     const isCurrentlyAvailable = cycle.status === 'available';
     // If it is available send status available; if unavailable send status unavailable.
     // The backend takes the current status and makes it the counter status.
@@ -400,7 +437,8 @@ export default function CycleOwnerScreen() {
   };
 
   const renderCycleItem = ({ item }: { item: Cycle }) => {
-    const isAvailable = item.status === 'available';
+    const isPending = checkIsPendingVerification(item);
+    const isAvailable = !isPending && item.status === 'available';
     const isUpdating =
       updatingCycleId === item.id ||
       updatingCycleId === (item as any).cycle_id ||
@@ -467,13 +505,13 @@ export default function CycleOwnerScreen() {
 
             <View style={styles.badgeRow}>
               <Badge
-                variant={item.is_verified ? 'success' : 'warning'}
-                label={item.is_verified ? 'Verified' : 'Pending Verification'}
+                variant={isPending ? 'warning' : item.is_verified ? 'success' : 'warning'}
+                label={isPending ? 'Pending Verification' : 'Verified'}
                 size="sm"
               />
               <Badge
-                variant={isAvailable ? 'primary' : 'neutral'}
-                label={isAvailable ? 'Active' : 'Paused'}
+                variant={isPending ? 'neutral' : isAvailable ? 'primary' : 'neutral'}
+                label={isPending ? 'Under Review' : isAvailable ? 'Active' : 'Paused'}
                 size="sm"
               />
             </View>
@@ -511,21 +549,33 @@ export default function CycleOwnerScreen() {
         </View>
 
         <View style={styles.cardBottom}>
-          <View style={styles.toggleRow}>
-            <Text style={styles.toggleText}>
-              Listing {isAvailable ? 'Available for Rent' : 'Temporarily Paused'}
-            </Text>
-            {isUpdating ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Switch
-                value={isAvailable}
-                onValueChange={() => toggleCycleAvailability(item)}
-                trackColor={{ false: colors.border, true: colors.accent }}
-                thumbColor={colors.white}
-              />
-            )}
-          </View>
+          {isPending ? (
+            <View style={styles.verificationBanner}>
+              <View style={styles.verificationHeader}>
+                <Ionicons name="time-outline" size={15} color="#B45309" />
+                <Text style={styles.verificationTitle}>Verification in Progress</Text>
+              </View>
+              <Text style={styles.verificationSubtitle}>
+                Cycle is in verification process. Once completed, we will notify you and you can start lending your cycle.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleText}>
+                Listing {isAvailable ? 'Available for Rent' : 'Temporarily Paused'}
+              </Text>
+              {isUpdating ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Switch
+                  value={isAvailable}
+                  onValueChange={() => toggleCycleAvailability(item)}
+                  trackColor={{ false: colors.border, true: colors.accent }}
+                  thumbColor={colors.white}
+                />
+              )}
+            </View>
+          )}
         </View>
       </View>
     );
@@ -720,13 +770,21 @@ export default function CycleOwnerScreen() {
               <View style={styles.modalStatusRow}>
                 <View style={styles.badgeRow}>
                   <Badge
-                    variant={selectedCycle?.is_verified ? 'success' : 'warning'}
-                    label={selectedCycle?.is_verified ? 'Verified by Admin' : 'Pending Verification'}
+                    variant={checkIsPendingVerification(selectedCycle) ? 'warning' : selectedCycle?.is_verified ? 'success' : 'warning'}
+                    label={checkIsPendingVerification(selectedCycle) ? 'Pending Verification' : 'Verified by Admin'}
                     size="sm"
                   />
                   <Badge
-                    variant={selectedCycle?.status === 'available' ? 'primary' : 'neutral'}
-                    label={selectedCycle?.status === 'available' ? 'Active & Available' : (selectedCycle?.status === 'rented' ? 'Currently Rented' : 'Paused')}
+                    variant={checkIsPendingVerification(selectedCycle) ? 'neutral' : selectedCycle?.status === 'available' ? 'primary' : 'neutral'}
+                    label={
+                      checkIsPendingVerification(selectedCycle)
+                        ? 'Under Review'
+                        : selectedCycle?.status === 'available'
+                        ? 'Active & Available'
+                        : selectedCycle?.status === 'rented'
+                        ? 'Currently Rented'
+                        : 'Paused'
+                    }
                     size="sm"
                   />
                 </View>
@@ -734,6 +792,18 @@ export default function CycleOwnerScreen() {
                   ₹{selectedCycle?.hourlyPrice}/hr • ₹{selectedCycle?.dailyPrice}/day
                 </Text>
               </View>
+
+              {checkIsPendingVerification(selectedCycle) && (
+                <View style={styles.modalVerificationCard}>
+                  <View style={styles.verificationHeader}>
+                    <Ionicons name="time-outline" size={15} color="#B45309" />
+                    <Text style={styles.verificationTitle}>Verification in Progress</Text>
+                  </View>
+                  <Text style={styles.verificationSubtitle}>
+                    Cycle is in verification process. Once completed, we will notify you and you can start lending your cycle.
+                  </Text>
+                </View>
+              )}
 
               {/* Specifications Grid */}
               <Text style={styles.modalSectionHeading}>Specifications</Text>
@@ -946,6 +1016,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     backgroundColor: colors.surfaceLight},
+  verificationBanner: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.xs + 3,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  modalVerificationCard: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+  },
+  verificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 3,
+  },
+  verificationTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#92400E',
+    letterSpacing: 0.2,
+  },
+  verificationSubtitle: {
+    fontSize: 11,
+    color: '#78350F',
+    lineHeight: 16,
+    fontWeight: '500',
+  },
   toggleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

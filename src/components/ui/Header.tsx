@@ -101,9 +101,9 @@ const styles = StyleSheet.create({
     gap: spacing.xs + 2,
   },
   logo: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
   },
   logoTitle: {
     fontSize: typography.h3.fontSize,

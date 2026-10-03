@@ -22,7 +22,6 @@ import Header from '../../components/ui/Header';
 import Badge from '../../components/ui/Badge';
 import { RootStackParamList } from '../../navigation/navigationTypes';
 import { apiClient } from '../../lib/apiClient';
-import { supabase } from '../../lib/supabase';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -267,17 +266,6 @@ export default function AdminAllUsersScreen() {
             setUsers((prev) =>
               prev.map((u) => (u.id === targetUser.id ? { ...u, is_blocked: willBlock } : u))
             );
-
-            // Attempt update in Supabase profiles table
-            try {
-              if (targetUser.id && !targetUser.id.startsWith('usr-')) {
-                await supabase.from('profiles').update({ is_blocked: willBlock }).eq('id', targetUser.id);
-              } else if (targetUser.email) {
-                await supabase.from('profiles').update({ is_blocked: willBlock }).eq('email', targetUser.email);
-              }
-            } catch (sbErr) {
-              console.warn('[AdminAllUsersScreen] Supabase block update note:', sbErr);
-            }
 
             Alert.alert(
               `User ${actionWord}ed ✅`,

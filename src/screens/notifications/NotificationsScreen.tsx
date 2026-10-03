@@ -97,6 +97,20 @@ export default function NotificationsScreen() {
     return () => clearInterval(interval);
   }, []);
 
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
+  const handleManualRefresh = async () => {
+    if (isManualRefreshing) return;
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    } catch (err: any) {
+      console.warn('[NotificationsScreen] Manual refresh error:', err);
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  };
+
   const handleMarkAllRead = async () => {
     try {
       await markAllAsRead();
@@ -1538,10 +1552,34 @@ export default function NotificationsScreen() {
         <Header
           title="Notifications"
           showBack
-          rightAction={{
-            icon: 'ellipsis-vertical',
-            onPress: () => setShowMenuModal(true),
-          }}
+          rightComponent={
+            <View style={styles.headerActionsRow}>
+              <TouchableOpacity
+                onPress={handleManualRefresh}
+                style={styles.headerActionBtn}
+                activeOpacity={0.7}
+                disabled={isManualRefreshing || loading}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Refresh notifications"
+              >
+                {isManualRefreshing || loading ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Ionicons name="refresh" size={22} color={colors.textPrimary} />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setShowMenuModal(true)}
+                style={styles.headerActionBtn}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="More options"
+              >
+                <Ionicons name="ellipsis-vertical" size={22} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+          }
         />
       )}
 
@@ -1572,13 +1610,31 @@ export default function NotificationsScreen() {
             You currently have no notifications. We will notify you when something new happens!
           </Text>
 
-          <TouchableOpacity
-            style={styles.exploreBtn}
-            onPress={() => navigation.navigate('Home')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.exploreBtnText}>Explore</Text>
-          </TouchableOpacity>
+          <View style={styles.emptyActionsRow}>
+            <TouchableOpacity
+              style={styles.exploreBtn}
+              onPress={() => navigation.navigate('Home')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.exploreBtnText}>Explore</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.emptyRefreshBtn}
+              onPress={handleManualRefresh}
+              activeOpacity={0.85}
+              disabled={isManualRefreshing || loading}
+            >
+              {isManualRefreshing || loading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <>
+                  <Ionicons name="refresh" size={16} color={colors.primary} style={{ marginRight: 6 }} />
+                  <Text style={styles.emptyRefreshBtnText}>Refresh</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       ) : (
         /* Grouped Sections List matching Mockup Screen 2 */
@@ -1680,6 +1736,22 @@ export default function NotificationsScreen() {
         >
           <View style={[styles.menuSheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
             <View style={styles.menuHandle} />
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setShowMenuModal(false);
+                handleManualRefresh();
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.menuItemRow}>
+                <Ionicons name="refresh" size={18} color={colors.primary} style={{ marginRight: 8 }} />
+                <Text style={[styles.menuItemText, { color: colors.primary, fontWeight: '700' }]}>
+                  Refresh Notifications
+                </Text>
+              </View>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.menuItem}
@@ -2526,5 +2598,37 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontWeight: '700',
     fontSize: 14,
+  },
+  headerActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  headerActionBtn: {
+    padding: 6,
+    borderRadius: 8,
+  },
+  emptyActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: spacing.md,
+  },
+  emptyRefreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1.5,
+    borderColor: '#BAE6FD',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: borderRadius.md,
+  },
+  emptyRefreshBtnText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

@@ -10,14 +10,14 @@ export default ({ config }: any): any => ({
   splash: {
     image: './assets/UGO_logo.jpeg',
     resizeMode: 'contain',
-    backgroundColor: '#0A192F',
+    backgroundColor: '#000000',
   },
   android: {
     package: 'in.ugo.nitk.mobile',
     googleServicesFile: './google-services.json',
     adaptiveIcon: {
       foregroundImage: './assets/app_logo.png',
-      backgroundColor: '#0A192F',
+      backgroundColor: '#000000',
     },
     permissions: [
       'CAMERA',
@@ -39,8 +39,6 @@ export default ({ config }: any): any => ({
     },
   },
   extra: {
-    supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://pddkgrveqwmeohxszuxr.supabase.co',
-    supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_9hyRRfSxKoXNV_iX4Q_W2Q_6vx9hXVX',
     razorpayKeyId: process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TSslW485AyMVnu',
     n8nBaseUrl: process.env.EXPO_PUBLIC_N8N_BASE_URL || 'https://ugonitk.app.n8n.cloud/webhook',
     eas: { projectId: process.env.EAS_PROJECT_ID },

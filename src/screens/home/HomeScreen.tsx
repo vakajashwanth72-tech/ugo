@@ -33,6 +33,149 @@ import SwipeableScreenWrapper from '../../components/SwipeableScreenWrapper';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+export interface CycleStatusConfig {
+  rawStatus: string;
+  displayStatus: string;
+  buttonLabel: string;
+  isAvailable: boolean;
+  badgeBg: string;
+  badgeTextColor: string;
+  badgeBorderColor: string;
+  dotColor: string;
+}
+
+export const getCycleStatusConfig = (raw?: string | null): CycleStatusConfig => {
+  const rawStatus = String(raw || 'available').trim();
+  const normalized = rawStatus.toLowerCase().replace(/[\s-]+/g, '_');
+
+  switch (normalized) {
+    case 'available':
+    case 'active':
+    case 'ready':
+    case 'true':
+    case '1':
+      return {
+        rawStatus,
+        displayStatus: 'Available',
+        buttonLabel: 'View Details',
+        isAvailable: true,
+        badgeBg: '#DCFCE7',
+        badgeTextColor: '#15803D',
+        badgeBorderColor: '#86EFAC',
+        dotColor: '#22C55E',
+      };
+
+    case 'rented':
+      return {
+        rawStatus,
+        displayStatus: 'Rented',
+        buttonLabel: 'Rented',
+        isAvailable: false,
+        badgeBg: '#E0F2FE',
+        badgeTextColor: '#0284C7',
+        badgeBorderColor: '#BAE6FD',
+        dotColor: '#0284C7',
+      };
+
+    case 'in_use':
+    case 'riding':
+      return {
+        rawStatus,
+        displayStatus: 'In Use',
+        buttonLabel: 'In Use',
+        isAvailable: false,
+        badgeBg: '#EDE9FE',
+        badgeTextColor: '#6D28D9',
+        badgeBorderColor: '#DDD6FE',
+        dotColor: '#8B5CF6',
+      };
+
+    case 'booked':
+    case 'slot_booked':
+      return {
+        rawStatus,
+        displayStatus: 'Booked',
+        buttonLabel: 'Booked',
+        isAvailable: false,
+        badgeBg: '#FEF3C7',
+        badgeTextColor: '#B45309',
+        badgeBorderColor: '#FDE68A',
+        dotColor: '#F59E0B',
+      };
+
+    case 'under_maintenance':
+    case 'maintenance':
+    case 'repair':
+      return {
+        rawStatus,
+        displayStatus: normalized === 'repair' ? 'In Repair' : 'Under Maintenance',
+        buttonLabel: 'Maintenance',
+        isAvailable: false,
+        badgeBg: '#FFE4E6',
+        badgeTextColor: '#BE123C',
+        badgeBorderColor: '#FECDD3',
+        dotColor: '#F43F5E',
+      };
+
+    case 'pending_verification':
+    case 'pending':
+      return {
+        rawStatus,
+        displayStatus: 'Pending Verification',
+        buttonLabel: 'Pending',
+        isAvailable: false,
+        badgeBg: '#FEF9C3',
+        badgeTextColor: '#A16207',
+        badgeBorderColor: '#FEF08A',
+        dotColor: '#EAB308',
+      };
+
+    case 'reserved':
+      return {
+        rawStatus,
+        displayStatus: 'Reserved',
+        buttonLabel: 'Reserved',
+        isAvailable: false,
+        badgeBg: '#F3E8FF',
+        badgeTextColor: '#7E22CE',
+        badgeBorderColor: '#E9D5FF',
+        dotColor: '#9333EA',
+      };
+
+    case 'unavailable':
+    case 'inactive':
+    case 'paused':
+    case 'disabled':
+      return {
+        rawStatus,
+        displayStatus: normalized === 'inactive' ? 'Inactive' : normalized === 'paused' ? 'Paused' : 'Unavailable',
+        buttonLabel: normalized === 'inactive' ? 'Inactive' : 'Unavailable',
+        isAvailable: false,
+        badgeBg: '#F1F5F9',
+        badgeTextColor: '#475569',
+        badgeBorderColor: '#CBD5E1',
+        dotColor: '#94A3B8',
+      };
+
+    default: {
+      const formattedTitle = rawStatus
+        .replace(/[_]+/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+
+      return {
+        rawStatus,
+        displayStatus: formattedTitle || 'Unavailable',
+        buttonLabel: formattedTitle || 'Unavailable',
+        isAvailable: false,
+        badgeBg: '#F1F5F9',
+        badgeTextColor: '#475569',
+        badgeBorderColor: '#CBD5E1',
+        dotColor: '#64748B',
+      };
+    }
+  }
+};
+
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { profile, user, isAdmin } = useAuth();
@@ -70,9 +213,12 @@ export default function HomeScreen() {
         const imageUrls = extractCycleImages(cycle);
         const primaryImage = imageUrls[0] || (cycle.image ? getCycleImageUrl(cycle.image) : null);
 
-        const rawStatus = (cycle.status || cycle.cycle_status || 'available').toLowerCase().trim();
-        const isAvailable = ['available', 'active', 'true', '1'].includes(rawStatus);
-        const status = isAvailable ? 'available' : 'unavailable';
+        const rawBackendStatus = String(
+          cycle.status ||
+          cycle.cycle_status ||
+          (cycle.is_active !== undefined ? (cycle.is_active ? 'available' : 'unavailable') : '') ||
+          'available'
+        ).trim();
 
         const isGeared =
           cycle.cycle_type?.toLowerCase().includes('gear') ||
@@ -118,7 +264,9 @@ export default function HomeScreen() {
           price_per_hour: hourlyPrice,
           price_per_day: dailyPrice,
           location,
-          status: status as any,
+          status: rawBackendStatus as any,
+          raw_status: rawBackendStatus,
+          cycle_status: rawBackendStatus,
           rating,
           is_verified: true,
         };
@@ -126,8 +274,8 @@ export default function HomeScreen() {
 
       // Sort: Available first, then hourly price ascending
       formatted.sort((a, b) => {
-        const aAvail = a.status === 'available' ? 0 : 1;
-        const bAvail = b.status === 'available' ? 0 : 1;
+        const aAvail = getCycleStatusConfig(a.status).isAvailable ? 0 : 1;
+        const bAvail = getCycleStatusConfig(b.status).isAvailable ? 0 : 1;
         if (aAvail !== bAvail) return aAvail - bAvail;
         return (a.hourlyPrice || 0) - (b.hourlyPrice || 0);
       });
@@ -238,11 +386,11 @@ export default function HomeScreen() {
   };
 
   const renderCycleCard = ({ item }: { item: Cycle }) => {
-    const isAvailable = item.status === 'available';
+    const statusConfig = getCycleStatusConfig(item.status);
 
     return (
       <View style={styles.card}>
-        {/* Left: Cycle Image with Available Badge */}
+        {/* Left: Cycle Image with Dynamic Status Badge */}
         <View style={styles.cardImageWrapper}>
           {item.image && getCycleImageUrl(item.image) ? (
             <Image source={{ uri: getCycleImageUrl(item.image) }} style={styles.cardImage} resizeMode="cover" />
@@ -251,9 +399,27 @@ export default function HomeScreen() {
               <Ionicons name="bicycle-outline" size={36} color={colors.textLight} />
             </View>
           )}
-          <View style={[styles.statusBadge, isAvailable ? styles.statusAvailable : styles.statusBooked]}>
-            <Text style={[styles.statusBadgeText, isAvailable ? styles.statusAvailableText : styles.statusBookedText]}>
-              {isAvailable ? 'Available' : 'Booked'}
+          <View
+            style={[
+              styles.statusBadge,
+              {
+                backgroundColor: statusConfig.badgeBg,
+                borderColor: statusConfig.badgeBorderColor,
+              },
+            ]}
+          >
+            <View style={[styles.statusDot, { backgroundColor: statusConfig.dotColor }]} />
+            <Text
+              style={[
+                styles.statusBadgeText,
+                {
+                  color: statusConfig.badgeTextColor,
+                  fontSize: statusConfig.displayStatus.length > 12 ? 8 : 8.5,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {statusConfig.displayStatus}
             </Text>
           </View>
           {item.images && item.images.length > 1 && (
@@ -299,7 +465,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Right: Price & View Details Button */}
+        {/* Right: Price & View Details / Status Button */}
         <View style={styles.cardRight}>
           <View style={styles.priceCol}>
             <Text style={styles.priceMain}>
@@ -309,13 +475,13 @@ export default function HomeScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.viewDetailsBtn, !isAvailable && styles.viewDetailsBtnDisabled]}
-            disabled={!isAvailable}
+            style={[styles.viewDetailsBtn, !statusConfig.isAvailable && styles.viewDetailsBtnDisabled]}
+            disabled={!statusConfig.isAvailable}
             onPress={() => handleViewDetails(item)}
             activeOpacity={0.8}
           >
-            <Text style={styles.viewDetailsText}>
-              {isAvailable ? 'View Details' : 'Booked'}
+            <Text style={styles.viewDetailsText} numberOfLines={1}>
+              {statusConfig.buttonLabel}
             </Text>
           </TouchableOpacity>
         </View>
@@ -751,7 +917,7 @@ const styles = StyleSheet.create({
   },
   filterToggleBtnActive: {
     borderColor: colors.accent,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: colors.primaryLight,
   },
   filterToggleText: {
     fontSize: 13,
@@ -842,26 +1008,25 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     left: 4,
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     paddingVertical: 2,
     borderRadius: borderRadius.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    maxWidth: 90,
+    zIndex: 2,
   },
-  statusAvailable: {
-    backgroundColor: '#DCFCE7',
-  },
-  statusBooked: {
-    backgroundColor: '#FEE2E2',
+  statusDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    marginRight: 3,
   },
   statusBadgeText: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: '800',
     letterSpacing: 0.2,
-  },
-  statusAvailableText: {
-    color: '#15803D',
-  },
-  statusBookedText: {
-    color: '#B91C1C',
   },
   photoCountBadge: {
     position: 'absolute',
@@ -1112,7 +1277,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   filterChipActive: {
-    backgroundColor: '#F0FDF4',
+    backgroundColor: colors.primaryLight,
     borderColor: colors.accent,
   },
   filterChipText: {

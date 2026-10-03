@@ -284,3 +284,31 @@ export function setupNotificationResponseListener(
     return () => {};
   }
 }
+
+/**
+ * Sets up a listener for incoming notifications while app is in foreground.
+ */
+export function setupNotificationReceivedListener(
+  onNotificationReceived: (data: Record<string, any>) => void
+): () => void {
+  try {
+    const subscription = Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification?.request?.content?.data || {};
+      const title = notification?.request?.content?.title;
+      const body = notification?.request?.content?.body;
+      console.log('[pushNotifications] Foreground notification received:', { title, body, data });
+      if (typeof onNotificationReceived === 'function') {
+        onNotificationReceived({ ...data, title, body });
+      }
+    });
+
+    return () => {
+      try {
+        subscription.remove();
+      } catch {}
+    };
+  } catch (err: any) {
+    console.warn('[pushNotifications] Error setting up notification received listener:', err?.message || err);
+    return () => {};
+  }
+}

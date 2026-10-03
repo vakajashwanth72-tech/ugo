@@ -16,8 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
-import { supabase } from '../../lib/supabase';
 import { apiClient } from '../../lib/apiClient';
+import { deleteBookingChat } from '../../lib/chatStorage';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/Button';
 import { RootStackParamList } from '../../navigation/navigationTypes';
@@ -80,45 +80,8 @@ export default function OtpVerificationScreen() {
   };
 
   useEffect(() => {
-    const fetchBookingDetails = async () => {
-      try {
-        const { data: booking, error } = await supabase
-          .from('booking_table')
-          .select(`
-            id,
-            renter_id,
-            cycles (brand, model)
-          `)
-          .eq('id', bookingId)
-          .single();
-
-        if (error || !booking) return;
-
-        if (booking.cycles) {
-          const c: any = booking.cycles;
-          setCycleInfo(`${c.brand} ${c.model}`);
-        }
-
-        if (booking.renter_id) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name, email')
-            .eq('id', booking.renter_id)
-            .single();
-
-          if (profile) {
-            setRenterName(profile.full_name || profile.email?.split('@')[0] || 'Renter');
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching OTP context:', err);
-      } finally {
-        setDetailsLoading(false);
-      }
-    };
-
-    fetchBookingDetails();
-  }, [bookingId]);
+    setDetailsLoading(false);
+  }, []);
 
   const handleOtpChange = (value: string, index: number) => {
     if (!/^\d*$/.test(value)) return;
@@ -187,6 +150,10 @@ export default function OtpVerificationScreen() {
           ? 'The cycle return has been successfully verified and completed.'
           : 'Pickup OTP verified! The rental is now moving to payment and active ride.');
       const cleanOkMsg = String(okMsg).replace(/^Error:\s*/i, '').trim();
+
+      if (isReturn && bookingId) {
+        deleteBookingChat(bookingId).catch(() => {});
+      }
 
       setSuccessMessage(cleanOkMsg);
 

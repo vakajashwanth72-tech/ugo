@@ -1,26 +1,28 @@
 export const colors = {
-  primary: '#163A5F', // UgO NITK Navy
-  primaryLight: '#EAF2F8', // Soft navy tint
-  navy: '#163A5F',
-  navyDark: '#0F2D4A',
-  accent: '#159447', // UgO Emerald Green
-  accentGreen: '#159447',
-  accentGreenDark: '#0F7A38',
-  accentBlue: '#2563EB',
-  warning: '#D99A24',
-  danger: '#D64545',
-  success: '#159447',
-  info: '#2563EB',
+  primary: '#0284C7', // Theme 2: Sky Blue (Sky-600)
+  primaryLight: '#E0F2FE', // Soft ice sky tint (Sky-100)
+  primaryDark: '#0369A1', // Deep sky blue (Sky-700)
+  navy: '#0369A1',
+  navyDark: '#075985',
+  accent: '#0284C7', // Consistent Sky Blue active accent
+  accentSky: '#38BDF8', // Bright sky highlight (Sky-400)
+  accentGreen: '#10B981',
+  accentGreenDark: '#059669',
+  accentBlue: '#0284C7',
+  warning: '#D97706',
+  danger: '#EF4444',
+  success: '#10B981',
+  info: '#0284C7',
   background: '#FFFFFF',
-  backgroundDark: '#F7F9FC', // Light surface background across app
+  backgroundDark: '#F0F9FF', // Clean ice blue background (Sky-50)
   backgroundLight: '#FFFFFF',
   surface: '#FFFFFF',
-  surfaceLight: '#F8FAFC',
-  surfaceBorder: '#E5E7EB',
-  border: '#E5E7EB',
-  borderLight: '#F1F5F9',
-  textPrimary: '#17202A',
-  textSecondary: '#667085',
+  surfaceLight: '#F0F9FF',
+  surfaceBorder: '#BAE6FD', // Soft sky border (Sky-200)
+  border: '#E2E8F0',
+  borderLight: '#F0F9FF',
+  textPrimary: '#0F172A',
+  textSecondary: '#475569',
   textLight: '#94A3B8',
   white: '#FFFFFF',
 };

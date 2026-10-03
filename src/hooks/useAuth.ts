@@ -1,8 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Session, User } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
 import { Profile } from '../types';
 import { getAccessToken, getUserData, clearAuthTokens } from '../lib/secureStorage';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  user_metadata?: any;
+  app_metadata?: any;
+  created_at?: string;
+  [key: string]: any;
+}
+
+export interface AuthSession {
+  access_token: string;
+  user: AuthUser;
+}
 import { apiClient, normalizeProfileData } from '../lib/apiClient';
 import { clearStoredNotifications } from './useNotifications';
 import {
@@ -10,6 +22,8 @@ import {
   unregisterDeviceTokenWithBackend,
   resetDeviceRegistrationSession,
 } from '../lib/pushNotifications';
+import { connectSocket, disconnectSocket } from '../lib/socket';
+import { clearAllTempChats } from '../lib/chatStorage';
 
 function decodeBase64(str: string): string {
   try {
@@ -49,8 +63,8 @@ function parseJwtPayload(token: string): any {
 }
 
 export function useAuth() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -117,6 +131,7 @@ export function useAuth() {
             created_at: new Date().toISOString(),
           };
           setUser(userObj);
+          setSession({ user: userObj, access_token: storedToken });
           setProfile({
             id: userObj.id,
             email,
@@ -127,21 +142,20 @@ export function useAuth() {
             net_balance: storedUser?.net_balance || 0,
           } as any);
           setLoading(false);
-          // Register device FCM token in background for restored backend session
+
+          // Fetch fresh profile from backend
+          fetchProfile(resolvedId).catch(() => {});
+
+          // Register device FCM token and connect real-time Socket.IO
           registerDeviceTokenWithBackend().catch(() => {});
+          connectSocket(storedToken);
           return;
         }
 
-        // 2. Fallback to Supabase session
-        const { data } = await supabase.auth.getSession();
-        if (!mounted) return;
-
-        if (data.session?.user) {
-          setSession(data.session);
-          setUser(data.session.user);
-          await fetchProfile(data.session.user.id);
-          // Register device FCM token in background for restored Supabase session
-          registerDeviceTokenWithBackend().catch(() => {});
+        if (mounted) {
+          setSession(null);
+          setUser(null);
+          setProfile(null);
         }
       } catch (err) {
         console.error('Auth initialization error:', err);
@@ -152,31 +166,8 @@ export function useAuth() {
 
     initAuth();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
-        if (!mounted) return;
-
-        if (newSession?.user) {
-          setSession(newSession);
-          setUser(newSession.user);
-          await fetchProfile(newSession.user.id);
-          registerDeviceTokenWithBackend().catch(() => {});
-        } else if (event === 'SIGNED_OUT') {
-          const storedToken = await getAccessToken();
-          if (!storedToken) {
-            setSession(null);
-            setUser(null);
-            setProfile(null);
-          }
-        }
-
-        setLoading(false);
-      }
-    );
-
     return () => {
       mounted = false;
-      authListener.subscription.unsubscribe();
     };
   }, [fetchProfile]);
 
@@ -191,8 +182,10 @@ export function useAuth() {
     } catch (e) {
       console.warn('[useAuth] Logout error:', e);
     }
+    disconnectSocket();
     await clearAuthTokens();
     await clearStoredNotifications();
+    await clearAllTempChats();
     resetDeviceRegistrationSession();
     try {
       const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
@@ -201,7 +194,6 @@ export function useAuth() {
     } catch (e) {
       console.warn('[useAuth] Error clearing storage on logout:', e);
     }
-    await supabase.auth.signOut().catch(() => {});
     setSession(null);
     setUser(null);
     setProfile(null);

@@ -16,8 +16,34 @@ export type RootStackParamList = {
   Notifications: undefined;
   OtpVerification: { bookingId: string; actionType?: string };
   Return: { bookingId: string };
-  Chat: { bookingId: string; otherUserId: string; otherUserName: string };
-  CallModal: { targetUserId?: string; targetUserName?: string; bookingId?: string };
+  Chat: {
+    id?: string;
+    conversationId?: string;
+    bookingId: string;
+    otherUserId: string;
+    otherUserName: string;
+    otherUserAvatar?: string;
+    isOwner?: boolean;
+    myRole?: 'renter' | 'owner' | string;
+    cycleName?: string;
+    cycleImage?: string;
+    location?: string;
+    rentalStatus?: string;
+    startTime?: string;
+    endTime?: string;
+    totalAmount?: number | string;
+  };
+  CallModal: {
+    id?: string | number;
+    call_id?: string | number;
+    targetUserId?: string;
+    targetUserName?: string;
+    targetUserAvatar?: string;
+    bookingId?: string;
+    conversationId?: string;
+    callData?: any;
+    isIncoming?: boolean;
+  };
   Profile: undefined;
   BookingHistory: undefined;
   Wallet: undefined;

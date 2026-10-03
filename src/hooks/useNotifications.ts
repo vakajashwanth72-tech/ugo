@@ -5,7 +5,7 @@ import { getAccessToken } from '../lib/secureStorage';
 import { NotificationItem } from '../types';
 import { PaymentCoordinator } from '../lib/PaymentCoordinator';
 import { AcceptedOtpCoordinator } from '../lib/AcceptedOtpCoordinator';
-import { supabase } from '../lib/supabase';
+import { onNotificationReceived } from '../lib/socket';
 
 // Set to false to enable active network fetching and polling of notifications
 export const NOTIFICATIONS_FETCH_PAUSED = false;
@@ -139,12 +139,18 @@ class NotificationStore {
       this.fetchNotifications(true);
     });
 
-    // Exactly ONE global polling timer for the entire app: runs every 5 seconds (5000ms)
-    if (!this.pollInterval) {
-      this.pollInterval = setInterval(() => {
-        this.fetchNotifications(false);
-      }, 5000);
+    // Notification polling stopped: replaced by real-time Socket.IO events
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
     }
+    console.log('[NotificationStore] Notification polling stopped. Listening via Socket.IO.');
+
+    // Subscribe to real-time Socket.IO "notification" events from backend
+    onNotificationReceived((data) => {
+      console.log('[NotificationStore] 🔔 Real-time Socket.IO notification received:', data);
+      this.fetchNotifications(true);
+    });
   }
 
   public async syncSessionToken(): Promise<void> {
@@ -483,9 +489,39 @@ class NotificationStore {
               return null;
             }
 
+            // Extract conversation_id from root item or inner payload/action_data
+            const rawConvId =
+              item.conversation_id ??
+              item.conversationId ??
+              payload?.conversation_id ??
+              payload?.conversationId ??
+              resolvedActionData?.conversation_id ??
+              resolvedActionData?.conversationId ??
+              null;
+
+            const isRentalOtpGen =
+              String(title).toLowerCase().includes('rental_otp_generated') ||
+              String(actionType).toLowerCase().includes('rental_otp_generated') ||
+              String(item.type || '').toLowerCase().includes('rental_otp_generated');
+
+            if (isRentalOtpGen || rawConvId) {
+              console.log(
+                `[NotificationStore] 🎯 rental_otp_generated notification detected! conversation_id: "${rawConvId}"`,
+                {
+                  id,
+                  title,
+                  actionType,
+                  booking_id: finalBookingId,
+                  conversation_id: rawConvId,
+                  action_data: resolvedActionData,
+                }
+              );
+            }
+
             return {
               id,
               booking_id: finalBookingId,
+              conversation_id: rawConvId ? String(rawConvId).trim() : undefined,
               title,
               message,
               type,
@@ -503,6 +539,12 @@ class NotificationStore {
       // BOOKING ACCEPTED (PICKUP & RETURN) OTP CELEBRATION POPUP DETECTION
       for (const item of incomingFormatted) {
         if (!item) continue;
+
+        // Skip immediately if notification is already read (on backend or in local session cache)
+        if (item.is_read || readIds.has(String(item.id))) {
+          continue;
+        }
+
         const actionData = (item as any).action_data || {};
         const titleLower = String(item.title || '').toLowerCase();
         const msgLower = String(item.message || '').toLowerCase();
@@ -585,64 +627,39 @@ class NotificationStore {
 
         const bookingId = item.booking_id || actionData.booking_id || actionData.bookingId;
 
-        if (!otp && bookingId) {
-          try {
-            const { data: bData } = await supabase
-              .from('booking_table')
-              .select('otp_code, pickup_otp, return_otp, status, cycles(brand, model, location)')
-              .eq('id', bookingId)
-              .maybeSingle();
-
-            if (isReturnAccepted && bData?.return_otp && !String(bData.return_otp).includes('$')) {
-              const digits = String(bData.return_otp).replace(/\D/g, '');
-              if (digits.length >= 4 && digits.length <= 6) otp = digits;
-            } else if (bData?.pickup_otp || bData?.otp_code) {
-              const cand = bData.pickup_otp || bData.otp_code;
-              if (cand && !String(cand).includes('$')) {
-                const digits = String(cand).replace(/\D/g, '');
-                if (digits.length >= 4 && digits.length <= 6) otp = digits;
-              }
-            }
-
-            if (!actionData.cycle_title && bData?.cycles) {
-              const c = bData.cycles as any;
-              actionData.cycle_title = `${c.brand || ''} ${c.model || ''}`.trim();
-              actionData.location = c.location;
-            }
-          } catch (e) {
-            console.warn('[NotificationStore] Could not fetch OTP from booking_table fallback:', e);
-          }
-        }
-
         if (otp) {
           const cleanOtp = String(otp).trim();
+          const notifIdStr = String(item.id);
           const uniqueKey = isReturnAccepted
-            ? `return_otp_${item.id}_${bookingId || cleanOtp}`
-            : `${item.id}_${bookingId || cleanOtp}`;
+            ? `return_otp_${notifIdStr}_${bookingId || cleanOtp}`
+            : `${notifIdStr}_${bookingId || cleanOtp}`;
           const isShown = await AcceptedOtpCoordinator.isAlreadyShown(uniqueKey);
-          const isIdShown = await AcceptedOtpCoordinator.isAlreadyShown(
-            isReturnAccepted ? `return_id_${item.id}` : item.id
-          );
+          const isIdShown = await AcceptedOtpCoordinator.isAlreadyShown(notifIdStr);
+          const isReturnIdShown = await AcceptedOtpCoordinator.isAlreadyShown(`return_id_${notifIdStr}`);
           const isBookingShown = bookingId
+            ? await AcceptedOtpCoordinator.isAlreadyShown(String(bookingId))
+            : false;
+          const isBookingKeyShown = bookingId
             ? await AcceptedOtpCoordinator.isAlreadyShown(
                 isReturnAccepted ? `booking_return_${bookingId}` : `booking_${bookingId}`
               )
             : false;
+          const isOtpShown = await AcceptedOtpCoordinator.isAlreadyShown(cleanOtp);
 
-          if (!isShown && !isIdShown && !isBookingShown) {
+          if (!isShown && !isIdShown && !isReturnIdShown && !isBookingShown && !isBookingKeyShown && !isOtpShown) {
             console.log(
-              `[NotificationStore] 🎊 TRIGGERING ${isReturnAccepted ? 'RETURN' : 'PICKUP'} OTP POPUP (OTP: ${cleanOtp}) for Booking: ${bookingId || item.id}`
+              `[NotificationStore] 🎊 TRIGGERING ${isReturnAccepted ? 'RETURN' : 'PICKUP'} OTP POPUP (OTP: ${cleanOtp}) for Booking: ${bookingId || notifIdStr}`
             );
 
-            await AcceptedOtpCoordinator.markAsShown(uniqueKey);
-            await AcceptedOtpCoordinator.markAsShown(
-              isReturnAccepted ? `return_id_${item.id}` : item.id
-            );
-            if (bookingId) {
-              await AcceptedOtpCoordinator.markAsShown(
-                isReturnAccepted ? `booking_return_${bookingId}` : `booking_${bookingId}`
-              );
-            }
+            await AcceptedOtpCoordinator.markAsShown([
+              uniqueKey,
+              notifIdStr,
+              `id_${notifIdStr}`,
+              `return_id_${notifIdStr}`,
+              ...(bookingId ? [String(bookingId), `booking_${bookingId}`, `booking_return_${bookingId}`] : []),
+              cleanOtp,
+              `otp_${cleanOtp}`,
+            ]);
 
             const cycleTitle =
               actionData.cycle_title ||
@@ -659,7 +676,7 @@ class NotificationStore {
             const location = actionData.location || actionData.cycle_location;
 
             AcceptedOtpCoordinator.showAcceptedOtp({
-              notificationId: item.id,
+              notificationId: notifIdStr,
               bookingId: bookingId ? String(bookingId) : undefined,
               otp: cleanOtp,
               cycleTitle,

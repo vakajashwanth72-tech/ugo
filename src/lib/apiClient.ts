@@ -8,7 +8,6 @@ import {
   saveAuthTokens,
   clearAuthTokens,
 } from './secureStorage';
-import { supabase } from './supabase';
 import { extractCycleImages, getCycleImageUrl } from './cycleUtils';
 import * as FileSystem from 'expo-file-system';
 
@@ -705,6 +704,11 @@ class ApiClient {
   private refreshPromise: Promise<boolean> | null = null;
   private myCyclesPromise: Promise<any> | null = null;
   private profilePromise: Promise<any> | null = null;
+  private callTokenInFlight = new Map<string, Promise<{ success: boolean; server_url: string; token: string }>>();
+  private callTokenCache = new Map<string, { success: boolean; server_url: string; token: string }>();
+  private callEndedSet = new Set<string>();
+  private callCancelledSet = new Set<string>();
+  private callRejectedSet = new Set<string>();
 
   /**
    * Resolves a URL: if already a full http(s) link, uses it as is;
@@ -727,7 +731,7 @@ class ApiClient {
 
   /**
    * Universally retrieves active access, recovery, and temp tokens across
-   * SecureStore, AsyncStorage, and active Supabase sessions.
+   * SecureStore and AsyncStorage.
    */
   async getEffectiveTokens(tempTokenOverride?: string): Promise<{
     accessToken: string | null;
@@ -740,21 +744,6 @@ class ApiClient {
 
     if (!accessToken && tempToken) {
       accessToken = tempToken;
-    }
-
-    // Fallback: Check Supabase session directly
-    if (!accessToken) {
-      try {
-        const { data } = await supabase.auth.getSession();
-        if (data?.session?.access_token) {
-          accessToken = data.session.access_token;
-        }
-        if (!recoveryToken && data?.session?.refresh_token) {
-          recoveryToken = data.session.refresh_token;
-        }
-      } catch (err) {
-        console.warn('[apiClient] Supabase session retrieval note:', err);
-      }
     }
 
     // Fallback: Scan AsyncStorage for cached token structures
@@ -938,7 +927,7 @@ class ApiClient {
     return this.request<T>(pathOrUrl, { method: 'DELETE', body: bodyOrOptions });
   }
 
-  private async tryRefreshToken(): Promise<boolean> {
+  public async tryRefreshToken(): Promise<boolean> {
     if (this.refreshPromise) {
       return this.refreshPromise;
     }
@@ -2417,7 +2406,7 @@ class ApiClient {
   }
 
   /**
-   * Submits a payout withdrawal request: PATCH /api/profiles/withdraw-request.
+   * Submits a payout withdrawal request: POST /api/profiles/withdraw-request.
    * Transmits withdraw_amount, upi_id, and account_holder_name in the request body,
    * with active access token (strictly without Bearer) in Authorization header.
    */
@@ -2464,7 +2453,7 @@ class ApiClient {
 
     const targetEndpoint = '/api/profiles/withdraw-request';
 
-    console.log('[apiClient] requestWithdrawal dispatching single PATCH to:', {
+    console.log('[apiClient] requestWithdrawal dispatching single POST to:', {
       endpoint: targetEndpoint,
       payload,
       tokenLength: cleanToken.length,
@@ -2472,7 +2461,7 @@ class ApiClient {
     });
 
     try {
-      const res = await this.patch<any>(targetEndpoint, payload, {
+      const res = await this.post<any>(targetEndpoint, payload, {
         headers: buildAuthHeaders(cleanToken),
         timeout: 25000,
         skipAuth: true,
@@ -4294,6 +4283,659 @@ class ApiClient {
     }
 
     throw lastErr || new Error('Failed to cancel payment.');
+  }
+
+  /**
+   * Fetches messages for a conversation from GET /api/conversations/:id.
+   * Transmits raw access token in Authorization header without Bearer.
+   * Makes ONLY ONE single request to /api/conversations/:id.
+   */
+  async getConversations(idOrBookingId: string): Promise<any[]> {
+    if (!idOrBookingId) return [];
+
+    let { accessToken, recoveryToken } = await this.getEffectiveTokens();
+    if (isTokenExpired(accessToken) && recoveryToken) {
+      const refreshed = await this.tryRefreshToken();
+      if (refreshed) {
+        const refreshedTokens = await this.getEffectiveTokens();
+        accessToken = refreshedTokens.accessToken;
+      }
+    }
+
+    const cleanToken = accessToken ? accessToken.replace(/^Bearer\s+/i, '').trim() : '';
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': DEFAULT_USER_AGENT,
+      'user-agent': DEFAULT_USER_AGENT,
+      'ngrok-skip-browser-warning': 'true',
+    };
+
+    if (cleanToken) {
+      headers['Authorization'] = cleanToken;
+      headers['authorization'] = cleanToken;
+      headers['Authorizer'] = cleanToken;
+      headers['authorizer'] = cleanToken;
+      headers['x-access-token'] = cleanToken;
+      headers['token'] = cleanToken;
+      headers['access_token'] = cleanToken;
+    }
+
+    const cleanId = encodeURIComponent(String(idOrBookingId).trim());
+    const endpoint = `/api/conversations/${cleanId}`;
+    console.log(`[apiClient] getConversations attempting GET from: ${endpoint}`);
+
+    try {
+      const res = await this.get<any>(endpoint, {
+        headers,
+        timeout: 15000,
+        skipAuth: true,
+      });
+
+      if (res !== undefined && res !== null) {
+        console.log(`[apiClient] getConversations response from ${endpoint}:`, res);
+        let parsed = res;
+        if (typeof res === 'string') {
+          try {
+            parsed = JSON.parse(res);
+          } catch {
+            parsed = res;
+          }
+        }
+
+        let rawList: any[] = [];
+
+        if (Array.isArray(parsed)) {
+          rawList = parsed;
+        } else if (Array.isArray(parsed?.conversation)) {
+          rawList = parsed.conversation;
+        } else if (Array.isArray(parsed?.conversations)) {
+          rawList = parsed.conversations;
+        } else if (Array.isArray(parsed?.messages)) {
+          rawList = parsed.messages;
+        } else if (Array.isArray(parsed?.rows)) {
+          rawList = parsed.rows;
+        } else if (Array.isArray(parsed?.data)) {
+          rawList = parsed.data;
+        } else if (Array.isArray(parsed?.result)) {
+          rawList = parsed.result;
+        } else if (Array.isArray(parsed?.body)) {
+          rawList = parsed.body;
+        } else if (parsed?.conversation && typeof parsed.conversation === 'object') {
+          if (Array.isArray(parsed.conversation.rows)) rawList = parsed.conversation.rows;
+          else if (Array.isArray(parsed.conversation.messages)) rawList = parsed.conversation.messages;
+          else if (Array.isArray(parsed.conversation.data)) rawList = parsed.conversation.data;
+        } else if (parsed?.messages && typeof parsed.messages === 'object') {
+          if (Array.isArray(parsed.messages.rows)) rawList = parsed.messages.rows;
+          else if (Array.isArray(parsed.messages.data)) rawList = parsed.messages.data;
+        } else if (parsed?.result && typeof parsed.result === 'object') {
+          if (Array.isArray(parsed.result.rows)) rawList = parsed.result.rows;
+          else if (Array.isArray(parsed.result.messages)) rawList = parsed.result.messages;
+          else if (Array.isArray(parsed.result.data)) rawList = parsed.result.data;
+        } else if (parsed?.data && typeof parsed.data === 'object') {
+          if (Array.isArray(parsed.data.conversation)) rawList = parsed.data.conversation;
+          else if (Array.isArray(parsed.data.rows)) rawList = parsed.data.rows;
+          else if (Array.isArray(parsed.data.messages)) rawList = parsed.data.messages;
+          else if (Array.isArray(parsed.data.data)) rawList = parsed.data.data;
+          else if (parsed.data.conversation && typeof parsed.data.conversation === 'object') {
+            if (Array.isArray(parsed.data.conversation.rows)) rawList = parsed.data.conversation.rows;
+          } else if (parsed.data.messages && typeof parsed.data.messages === 'object') {
+            if (Array.isArray(parsed.data.messages.rows)) rawList = parsed.data.messages.rows;
+          }
+        }
+
+        if (rawList.length === 0 && parsed && typeof parsed === 'object') {
+          for (const key of Object.keys(parsed)) {
+            if (Array.isArray(parsed[key]) && parsed[key].length > 0) {
+              rawList = parsed[key];
+              break;
+            }
+          }
+        }
+
+        console.log(`[apiClient] 🎯 getConversations extracted ${rawList.length} message(s) from ${endpoint}`);
+        return rawList;
+      }
+      return [];
+    } catch (err: any) {
+      console.warn(`[apiClient] getConversations error on ${endpoint}:`, err?.message || err);
+      return [];
+    }
+  }
+
+  /**
+   * Sends a message for a booking via POST /api/messages.
+   * Transmits raw access token in Authorization header without Bearer.
+   * Body: { booking_id, message, conversation_id? }
+   */
+  async sendMessage(params: { booking_id: string; message: string; conversation_id?: string }): Promise<any> {
+    const { booking_id, message, conversation_id } = params;
+    if (!booking_id || !message) {
+      throw new Error('booking_id and message are required.');
+    }
+
+    let { accessToken, recoveryToken } = await this.getEffectiveTokens();
+    if (isTokenExpired(accessToken) && recoveryToken) {
+      const refreshed = await this.tryRefreshToken();
+      if (refreshed) {
+        const refreshedTokens = await this.getEffectiveTokens();
+        accessToken = refreshedTokens.accessToken;
+        recoveryToken = refreshedTokens.recoveryToken;
+      }
+    }
+
+    const cleanToken = accessToken ? accessToken.replace(/^Bearer\s+/i, '').trim() : '';
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': DEFAULT_USER_AGENT,
+      'user-agent': DEFAULT_USER_AGENT,
+      'ngrok-skip-browser-warning': 'true',
+    };
+
+    if (cleanToken) {
+      headers['Authorization'] = cleanToken;
+      headers['authorization'] = cleanToken;
+      headers['Authorizer'] = cleanToken;
+      headers['authorizer'] = cleanToken;
+      headers['x-access-token'] = cleanToken;
+      headers['token'] = cleanToken;
+      headers['access_token'] = cleanToken;
+    }
+
+    if (recoveryToken) {
+      headers['x-refresh-token'] = recoveryToken;
+      headers['refresh-token'] = recoveryToken;
+      headers['refresh_token'] = recoveryToken;
+      headers['refreshToken'] = recoveryToken;
+    }
+
+    const payload: Record<string, any> = {
+      booking_id,
+      message,
+    };
+    if (conversation_id) {
+      payload.conversation_id = conversation_id;
+    }
+
+    console.log('[apiClient] sendMessage dispatching POST to /api/messages with Authorization header:', {
+      hasAuth: !!cleanToken,
+      authLength: cleanToken.length,
+      booking_id,
+      conversation_id: conversation_id || 'none',
+      messageLength: message.length,
+    });
+
+    try {
+      console.log('[apiClient] sendMessage attempting POST to: /api/messages');
+      const res = await this.post<any>('/api/messages', payload, {
+        headers,
+        timeout: 15000,
+        skipAuth: true,
+      });
+
+      if (res !== undefined && res !== null) {
+        console.log('[apiClient] sendMessage response from /api/messages:', res);
+        return res;
+      }
+      throw new Error('Empty response received from server when sending message.');
+    } catch (err: any) {
+      console.error('[apiClient] sendMessage error on /api/messages:', {
+        message: err?.message || err,
+        status: err?.status,
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Initiates a call session via POST /api/calls/:id/create
+   * where id is conversationid.
+   * Transmits raw access token in Authorization headers without Bearer prefix.
+   * Body: { call_type: 'audio' }
+   */
+  async createCall(conversationId: string, callType: 'audio' | string = 'audio'): Promise<any> {
+    if (!conversationId) {
+      throw new Error('conversationId is required to create a call.');
+    }
+
+    let { accessToken, recoveryToken } = await this.getEffectiveTokens();
+    if (isTokenExpired(accessToken) && recoveryToken) {
+      const refreshed = await this.tryRefreshToken();
+      if (refreshed) {
+        const refreshedTokens = await this.getEffectiveTokens();
+        accessToken = refreshedTokens.accessToken;
+        recoveryToken = refreshedTokens.recoveryToken;
+      }
+    }
+
+    const cleanToken = accessToken ? accessToken.replace(/^Bearer\s+/i, '').trim() : '';
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': DEFAULT_USER_AGENT,
+      'user-agent': DEFAULT_USER_AGENT,
+      'ngrok-skip-browser-warning': 'true',
+    };
+
+    if (cleanToken) {
+      headers['Authorization'] = cleanToken;
+      headers['authorization'] = cleanToken;
+      headers['Authorizer'] = cleanToken;
+      headers['authorizer'] = cleanToken;
+      headers['x-access-token'] = cleanToken;
+      headers['token'] = cleanToken;
+      headers['access_token'] = cleanToken;
+    }
+
+    if (recoveryToken) {
+      headers['x-refresh-token'] = recoveryToken;
+      headers['refresh-token'] = recoveryToken;
+      headers['refresh_token'] = recoveryToken;
+      headers['refreshToken'] = recoveryToken;
+    }
+
+    const cleanConvId = encodeURIComponent(String(conversationId).trim());
+    const endpoint = `/api/calls/${cleanConvId}/create`;
+
+    console.log(`[apiClient] createCall dispatching POST to ${endpoint} with auth headers (no Bearer):`, {
+      conversationId: cleanConvId,
+      call_type: callType,
+      hasAuth: !!cleanToken,
+      authLength: cleanToken.length,
+    });
+
+    try {
+      console.log(`[apiClient] createCall attempting POST to: ${endpoint}`);
+      const res = await this.post<any>(
+        endpoint,
+        { call_type: callType },
+        {
+          headers,
+          timeout: 15000,
+          skipAuth: true,
+        }
+      );
+
+      console.log(`[apiClient] createCall response from ${endpoint}:`, res);
+      return res;
+    } catch (err: any) {
+      console.error(`[apiClient] createCall error on ${endpoint}:`, {
+        message: err?.message || err,
+        status: err?.status,
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Retrieves call token & LiveKit URL via POST /api/calls/:id/token
+   * where id is the call id.
+   * Transmits raw access token in Authorization headers without Bearer prefix.
+   * Makes strictly only ONE single request.
+   * Response: { success: true, server_url, token }
+   */
+  async getCallToken(callId: string | number): Promise<{ success: boolean; server_url: string; token: string }> {
+    if (!callId) {
+      throw new Error('callId is required to fetch call token.');
+    }
+
+    const cleanCallId = encodeURIComponent(String(callId).trim());
+
+    // 1. Return cached LiveKit token if already fetched within session (ensures strictly 1 HTTP request per user)
+    if (this.callTokenCache.has(cleanCallId)) {
+      console.log(`[apiClient] getCallToken: Returning cached LiveKit token for callId "${cleanCallId}" (strictly 1 HTTP request).`);
+      return this.callTokenCache.get(cleanCallId)!;
+    }
+
+    // 2. Return in-flight promise if request is already ongoing
+    if (this.callTokenInFlight.has(cleanCallId)) {
+      console.log(`[apiClient] getCallToken: Returning existing in-flight request for callId "${cleanCallId}" (strictly 1 HTTP request).`);
+      return this.callTokenInFlight.get(cleanCallId)!;
+    }
+
+    const requestPromise = (async () => {
+      let { accessToken, recoveryToken } = await this.getEffectiveTokens();
+      if (isTokenExpired(accessToken) && recoveryToken) {
+        const refreshed = await this.tryRefreshToken();
+        if (refreshed) {
+          const refreshedTokens = await this.getEffectiveTokens();
+          accessToken = refreshedTokens.accessToken;
+          recoveryToken = refreshedTokens.recoveryToken;
+        }
+      }
+
+      const cleanToken = accessToken ? accessToken.replace(/^Bearer\s+/i, '').trim() : '';
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'User-Agent': DEFAULT_USER_AGENT,
+        'user-agent': DEFAULT_USER_AGENT,
+        'ngrok-skip-browser-warning': 'true',
+      };
+
+      if (cleanToken) {
+        headers['Authorization'] = cleanToken;
+        headers['authorization'] = cleanToken;
+        headers['Authorizer'] = cleanToken;
+        headers['authorizer'] = cleanToken;
+        headers['x-access-token'] = cleanToken;
+        headers['token'] = cleanToken;
+        headers['access_token'] = cleanToken;
+      }
+
+      if (recoveryToken) {
+        headers['x-refresh-token'] = recoveryToken;
+        headers['refresh-token'] = recoveryToken;
+        headers['refresh_token'] = recoveryToken;
+        headers['refreshToken'] = recoveryToken;
+      }
+
+      const endpoint = `/api/calls/${cleanCallId}/token`;
+
+      console.log(`[apiClient] getCallToken dispatching POST to ${endpoint} with auth header (no Bearer):`, {
+        callId: cleanCallId,
+        hasAuth: !!cleanToken,
+        authLength: cleanToken.length,
+      });
+
+      try {
+        const res = await this.post<any>(
+          endpoint,
+          {},
+          {
+            headers,
+            timeout: 15000,
+            skipAuth: true,
+          }
+        );
+
+        console.log(`[apiClient] getCallToken response from ${endpoint}:`, res);
+        if (res?.token && res?.server_url) {
+          this.callTokenCache.set(cleanCallId, res);
+        }
+        return res;
+      } catch (err: any) {
+        console.error(`[apiClient] getCallToken error on ${endpoint}:`, {
+          message: err?.message || err,
+          status: err?.status,
+        });
+        throw err;
+      } finally {
+        this.callTokenInFlight.delete(cleanCallId);
+      }
+    })();
+
+    this.callTokenInFlight.set(cleanCallId, requestPromise);
+    return requestPromise;
+  }
+
+  /**
+   * Accepts a call session via POST /api/calls/:id/accept
+   * where id is the call id.
+   * Transmits raw access token in Authorization headers without Bearer prefix.
+   * Makes strictly only ONE single request.
+   */
+  async acceptCall(callId: string | number): Promise<any> {
+    if (!callId) {
+      throw new Error('callId is required to accept call.');
+    }
+
+    let { accessToken, recoveryToken } = await this.getEffectiveTokens();
+    if (isTokenExpired(accessToken) && recoveryToken) {
+      const refreshed = await this.tryRefreshToken();
+      if (refreshed) {
+        const refreshedTokens = await this.getEffectiveTokens();
+        accessToken = refreshedTokens.accessToken;
+        recoveryToken = refreshedTokens.recoveryToken;
+      }
+    }
+
+    const cleanToken = accessToken ? accessToken.replace(/^Bearer\s+/i, '').trim() : '';
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': DEFAULT_USER_AGENT,
+      'user-agent': DEFAULT_USER_AGENT,
+      'ngrok-skip-browser-warning': 'true',
+    };
+
+    if (cleanToken) {
+      headers['Authorization'] = cleanToken;
+      headers['authorization'] = cleanToken;
+      headers['Authorizer'] = cleanToken;
+      headers['authorizer'] = cleanToken;
+      headers['x-access-token'] = cleanToken;
+      headers['token'] = cleanToken;
+      headers['access_token'] = cleanToken;
+    }
+
+    if (recoveryToken) {
+      headers['x-refresh-token'] = recoveryToken;
+      headers['refresh-token'] = recoveryToken;
+      headers['refresh_token'] = recoveryToken;
+      headers['refreshToken'] = recoveryToken;
+    }
+
+    const cleanCallId = encodeURIComponent(String(callId).trim());
+    const endpoint = `/api/calls/${cleanCallId}/accept`;
+
+    console.log(`[apiClient] acceptCall dispatching POST to ${endpoint} with auth header (no Bearer):`, {
+      callId: cleanCallId,
+      hasAuth: !!cleanToken,
+      authLength: cleanToken.length,
+    });
+
+    try {
+      const res = await this.post<any>(
+        endpoint,
+        {},
+        {
+          headers,
+          timeout: 15000,
+          skipAuth: true,
+        }
+      );
+
+      console.log(`[apiClient] acceptCall response from ${endpoint}:`, res);
+      return res;
+    } catch (err: any) {
+      console.error(`[apiClient] acceptCall error on ${endpoint}:`, {
+        message: err?.message || err,
+        status: err?.status,
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Helper to format authentication headers for call operations.
+   */
+  private async getCallHeaders(): Promise<{ headers: Record<string, string>; cleanToken: string }> {
+    let { accessToken, recoveryToken } = await this.getEffectiveTokens();
+    if (isTokenExpired(accessToken) && recoveryToken) {
+      const refreshed = await this.tryRefreshToken();
+      if (refreshed) {
+        const refreshedTokens = await this.getEffectiveTokens();
+        accessToken = refreshedTokens.accessToken;
+        recoveryToken = refreshedTokens.recoveryToken;
+      }
+    }
+
+    const cleanToken = accessToken ? accessToken.replace(/^Bearer\s+/i, '').trim() : '';
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': DEFAULT_USER_AGENT,
+      'user-agent': DEFAULT_USER_AGENT,
+      'ngrok-skip-browser-warning': 'true',
+    };
+
+    if (cleanToken) {
+      headers['Authorization'] = cleanToken;
+      headers['authorization'] = cleanToken;
+      headers['Authorizer'] = cleanToken;
+      headers['authorizer'] = cleanToken;
+      headers['x-access-token'] = cleanToken;
+      headers['token'] = cleanToken;
+      headers['access_token'] = cleanToken;
+    }
+
+    if (recoveryToken) {
+      headers['x-refresh-token'] = recoveryToken;
+      headers['refresh-token'] = recoveryToken;
+      headers['refresh_token'] = recoveryToken;
+      headers['refreshToken'] = recoveryToken;
+    }
+
+    return { headers, cleanToken };
+  }
+
+  /**
+   * Ends an active call session via POST /api/calls/:id/end
+   * Sends access token in Authorization headers.
+   * Deduplicated so it only makes 1 request per call session.
+   */
+  async endCall(callId: string | number): Promise<any> {
+    if (!callId) {
+      console.warn('[apiClient] endCall called without callId.');
+      return;
+    }
+
+    const cleanCallId = encodeURIComponent(String(callId).trim());
+    if (this.callEndedSet.has(cleanCallId)) {
+      console.log(`[apiClient] endCall: Call "${cleanCallId}" already reported ended. Skipping duplicate.`);
+      return;
+    }
+    this.callEndedSet.add(cleanCallId);
+
+    const { headers, cleanToken } = await this.getCallHeaders();
+    const endpoint = `/api/calls/${cleanCallId}/end`;
+
+    console.log(`[apiClient] endCall dispatching POST to ${endpoint} with auth header (no Bearer):`, {
+      callId: cleanCallId,
+      hasAuth: !!cleanToken,
+      authLength: cleanToken.length,
+    });
+
+    try {
+      const res = await this.post<any>(
+        endpoint,
+        {},
+        {
+          headers,
+          timeout: 15000,
+          skipAuth: true,
+        }
+      );
+
+      console.log(`[apiClient] endCall response from ${endpoint}:`, res);
+      return res;
+    } catch (err: any) {
+      console.error(`[apiClient] endCall error on ${endpoint}:`, {
+        message: err?.message || err,
+        status: err?.status,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Cancels an outgoing call via POST /api/calls/:id/cancel
+   * Dispatched by User A when cancelling before call is accepted.
+   * Sends access token in Authorization headers.
+   */
+  async cancelCall(callId: string | number): Promise<any> {
+    if (!callId) {
+      console.warn('[apiClient] cancelCall called without callId.');
+      return;
+    }
+
+    const cleanCallId = encodeURIComponent(String(callId).trim());
+    if (this.callCancelledSet.has(cleanCallId)) {
+      console.log(`[apiClient] cancelCall: Call "${cleanCallId}" already cancelled. Skipping duplicate.`);
+      return;
+    }
+    this.callCancelledSet.add(cleanCallId);
+
+    const { headers, cleanToken } = await this.getCallHeaders();
+    const endpoint = `/api/calls/${cleanCallId}/cancel`;
+
+    console.log(`[apiClient] cancelCall dispatching POST to ${endpoint} with auth header (no Bearer):`, {
+      callId: cleanCallId,
+      hasAuth: !!cleanToken,
+      authLength: cleanToken.length,
+    });
+
+    try {
+      const res = await this.post<any>(
+        endpoint,
+        {},
+        {
+          headers,
+          timeout: 15000,
+          skipAuth: true,
+        }
+      );
+
+      console.log(`[apiClient] cancelCall response from ${endpoint}:`, res);
+      return res;
+    } catch (err: any) {
+      console.error(`[apiClient] cancelCall error on ${endpoint}:`, {
+        message: err?.message || err,
+        status: err?.status,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Rejects an incoming call via POST /api/calls/:id/reject
+   * Dispatched by User B when declining an incoming call.
+   * Sends access token in Authorization headers.
+   */
+  async rejectCall(callId: string | number): Promise<any> {
+    if (!callId) {
+      console.warn('[apiClient] rejectCall called without callId.');
+      return;
+    }
+
+    const cleanCallId = encodeURIComponent(String(callId).trim());
+    if (this.callRejectedSet.has(cleanCallId)) {
+      console.log(`[apiClient] rejectCall: Call "${cleanCallId}" already rejected. Skipping duplicate.`);
+      return;
+    }
+    this.callRejectedSet.add(cleanCallId);
+
+    const { headers, cleanToken } = await this.getCallHeaders();
+    const endpoint = `/api/calls/${cleanCallId}/reject`;
+
+    console.log(`[apiClient] rejectCall dispatching POST to ${endpoint} with auth header (no Bearer):`, {
+      callId: cleanCallId,
+      hasAuth: !!cleanToken,
+      authLength: cleanToken.length,
+    });
+
+    try {
+      const res = await this.post<any>(
+        endpoint,
+        {},
+        {
+          headers,
+          timeout: 15000,
+          skipAuth: true,
+        }
+      );
+
+      console.log(`[apiClient] rejectCall response from ${endpoint}:`, res);
+      return res;
+    } catch (err: any) {
+      console.error(`[apiClient] rejectCall error on ${endpoint}:`, {
+        message: err?.message || err,
+        status: err?.status,
+      });
+      return null;
+    }
   }
 }
 

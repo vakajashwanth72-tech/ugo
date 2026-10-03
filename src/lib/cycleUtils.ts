@@ -156,13 +156,6 @@ export function getCycleImageUrl(img?: any): string {
     return `data:image/jpeg;base64,${sanitized}`;
   }
 
-  // 5. If it's a stored image filename (e.g. 82efa361..._image1.jpg or path),
-  // construct the public URL from the cycle-images storage bucket
-  const cleanPath = trimmed.replace(/^\/+/, '');
-  if (/\.(jpe?g|png|webp|gif|heic)$/i.test(cleanPath)) {
-    return `https://pddkgrveqwmeohxszuxr.supabase.co/storage/v1/object/public/cycle-images/${cleanPath}`;
-  }
-
   return '';
 }
 

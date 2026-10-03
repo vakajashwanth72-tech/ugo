@@ -19,7 +19,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
-import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import {
   canChatOrCall,
@@ -27,12 +26,14 @@ import {
   getStatusMeta,
   calculateRemainingTime,
   calculateExtraCharges} from '../../lib/bookingStatus';
-import { Booking } from '../../types';
+import { Booking, NotificationItem } from '../../types';
+import { useNotifications } from '../../hooks/useNotifications';
 import Header from '../../components/ui/Header';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import RentalBottomNav from '../../components/RentalBottomNav';
 import { getCycleImageUrl } from '../../lib/cycleUtils';
+import { deleteBookingChat } from '../../lib/chatStorage';
 import RazorpayCheckoutModal from '../../components/RazorpayCheckoutModal';
 import { RootStackParamList } from '../../navigation/navigationTypes';
 import { apiClient, isReturnBookingAccepted, markReturnBookingAccepted } from '../../lib/apiClient';
@@ -62,6 +63,232 @@ const extractValidOtp = (val: any): string | null => {
   const digits = s.replace(/\D/g, '');
   if (digits.length >= 4 && digits.length <= 6) return digits;
   return null;
+};
+
+/**
+ * Extracts the Pickup or Return OTP for a rental from the user's received notifications.
+ */
+const getRenterOtpFromNotifications = (
+  booking: Booking,
+  notifications: NotificationItem[],
+  isReturnOtpState: boolean
+): string | null => {
+  // 1. If booking already has a valid extracted OTP, return it
+  if (isReturnOtpState && booking.return_otp) {
+    const v = extractValidOtp(booking.return_otp);
+    if (v) return v;
+  }
+  if (!isReturnOtpState) {
+    if (booking.otp_code) {
+      const v = extractValidOtp(booking.otp_code);
+      if (v) return v;
+    }
+    if (booking.pickup_otp) {
+      const v = extractValidOtp(booking.pickup_otp);
+      if (v) return v;
+    }
+  }
+
+  if (!notifications || notifications.length === 0) return null;
+
+  const cleanBookingId = String(booking.id || '').replace(/^Bearer\s+/i, '').trim();
+  const cleanCycleId = String(booking.cycle_id || '').trim().toLowerCase();
+  const cleanCycleTitle = String(booking.cycle_title || '').trim().toLowerCase();
+
+  const parseActionData = (notif: NotificationItem): any => {
+    const cand =
+      notif.action_data ||
+      (notif as any).payload ||
+      (notif as any).payload_response ||
+      (notif as any).data ||
+      {};
+    if (typeof cand === 'string') {
+      try {
+        return JSON.parse(cand);
+      } catch {
+        return {};
+      }
+    }
+    return typeof cand === 'object' && cand !== null ? cand : {};
+  };
+
+  const extractOtpCandidate = (notif: NotificationItem, forReturn: boolean): string | null => {
+    const actionData = parseActionData(notif);
+    const msg = String(notif.message || '');
+    const title = String(notif.title || '').toLowerCase();
+
+    // Never pick OTP from notifications instructing the owner to verify/enter OTP
+    if (title.includes('enter') && (title.includes('otp') || title.includes('verify'))) {
+      return null;
+    }
+
+    if (forReturn) {
+      const cand = actionData.return_otp || actionData.returnOtp || actionData.otp_code || actionData.otp;
+      if (cand && !String(cand).includes('$')) {
+        const v = extractValidOtp(cand);
+        if (v) return v;
+      }
+      const returnMatch = msg.match(/(?:return\s+otp(?:\s+code)?\s+is\s+|otp\s+is\s+|return\s+otp:\s*)(\d{4,6})/i);
+      if (returnMatch && returnMatch[1]) return returnMatch[1];
+    } else {
+      const cand =
+        actionData.pickup_otp ||
+        actionData.pickupOtp ||
+        actionData.otp_code ||
+        actionData.otp ||
+        (notif as any).pickup_otp ||
+        (notif as any).otp_code;
+      if (cand && !String(cand).includes('$')) {
+        const v = extractValidOtp(cand);
+        if (v) return v;
+      }
+      const pickupMatch = msg.match(/(?:pickup\s+otp(?:\s+code)?\s+is\s+|your\s+(?:pickup\s+)?otp\s+is\s+|otp\s+is\s+|otp:\s*|code:\s*)(\d{4,6})/i);
+      if (pickupMatch && pickupMatch[1]) return pickupMatch[1];
+    }
+
+    // Generic 6-digit or 4-digit match in notification message
+    const msgLower = msg.toLowerCase();
+    const isOtpContext =
+      msgLower.includes('otp') ||
+      msgLower.includes('pickup') ||
+      msgLower.includes('share') ||
+      msgLower.includes('accepted') ||
+      msgLower.includes('coordinate') ||
+      title.includes('accepted') ||
+      title.includes('confirmed') ||
+      title.includes('otp');
+
+    if (isOtpContext) {
+      const sixDigit = msg.match(/\b\d{6}\b/);
+      if (sixDigit) return sixDigit[0];
+      const fourToSix = msg.match(/\b\d{4,6}\b/);
+      if (fourToSix) return fourToSix[0];
+    }
+
+    return null;
+  };
+
+  // Priority 1: Match by exact booking_id
+  for (const notif of notifications) {
+    const actionData = parseActionData(notif);
+    const notifBookingId = String(notif.booking_id || actionData.booking_id || actionData.bookingId || '').trim();
+    if (notifBookingId && cleanBookingId && notifBookingId === cleanBookingId) {
+      const otp = extractOtpCandidate(notif, isReturnOtpState);
+      if (otp) return otp;
+    }
+  }
+
+  // Priority 2: Match by cycle_id
+  for (const notif of notifications) {
+    const actionData = parseActionData(notif);
+    const notifCycleId = String(actionData.cycle_id || actionData.cycleId || '').trim().toLowerCase();
+    if (notifCycleId && cleanCycleId && notifCycleId === cleanCycleId) {
+      const otp = extractOtpCandidate(notif, isReturnOtpState);
+      if (otp) return otp;
+    }
+  }
+
+  // Priority 3: Match by cycle_title or message content
+  for (const notif of notifications) {
+    const actionData = parseActionData(notif);
+    const notifCycleTitle = String(
+      actionData.cycle_title || actionData.cycle_name || actionData.brand || actionData.cycleBrand || ''
+    ).trim().toLowerCase();
+    const msgLower = String(notif.message || '').toLowerCase();
+
+    const matchesTitle =
+      cleanCycleTitle &&
+      ((notifCycleTitle && (cleanCycleTitle.includes(notifCycleTitle) || notifCycleTitle.includes(cleanCycleTitle))) ||
+       msgLower.includes(cleanCycleTitle));
+
+    if (matchesTitle) {
+      const otp = extractOtpCandidate(notif, isReturnOtpState);
+      if (otp) return otp;
+    }
+  }
+
+  // Priority 4: Most recent matching OTP notification
+  for (const notif of notifications) {
+    const otp = extractOtpCandidate(notif, isReturnOtpState);
+    if (otp) return otp;
+  }
+
+  return null;
+};
+
+export const getConversationIdFromNotifications = (
+  booking: Booking,
+  notifications?: NotificationItem[]
+): string | null => {
+  if (!booking) return null;
+
+  const cleanBookingId = String(booking.id || '').replace(/^Bearer\s+/i, '').trim();
+
+  if (notifications && notifications.length > 0) {
+    // 1. Look for rental_otp_generated notification matching this booking
+    for (const notif of notifications) {
+      const title = String(notif.title || '').toLowerCase().trim();
+      const actionType = String(notif.action_type || (notif as any).actionType || '').toLowerCase().trim();
+      const actionData = typeof notif.action_data === 'string'
+        ? (() => { try { return JSON.parse(notif.action_data); } catch { return {}; } })()
+        : (notif.action_data || (notif as any).payload || (notif as any).data || {});
+
+      const notifBookingId = String(
+        notif.booking_id ||
+        actionData?.booking_id ||
+        actionData?.bookingId ||
+        ''
+      ).trim();
+
+      const isRentalOtpGen =
+        title === 'rental_otp_generated' ||
+        title.includes('rental_otp_generated') ||
+        actionType === 'rental_otp_generated' ||
+        actionType.includes('rental_otp_generated');
+
+      const matchesBooking = !cleanBookingId || notifBookingId === cleanBookingId || (notif.message && notif.message.includes(cleanBookingId));
+
+      if (isRentalOtpGen || matchesBooking) {
+        const convId =
+          notif.conversation_id ||
+          actionData?.conversation_id ||
+          actionData?.conversationId ||
+          (notif as any)?.payload?.conversation_id ||
+          (notif as any)?.data?.conversation_id;
+
+        if (convId) {
+          console.log(`[OngoingRentalsScreen] 🎯 Found conversation_id: "${convId}" in notification "${notif.title}" for booking ${cleanBookingId}`);
+          return String(convId).trim();
+        }
+      }
+    }
+
+    // 2. Check any notification that has conversation_id for this booking
+    for (const notif of notifications) {
+      const actionData = typeof notif.action_data === 'string'
+        ? (() => { try { return JSON.parse(notif.action_data); } catch { return {}; } })()
+        : (notif.action_data || (notif as any).payload || (notif as any).data || {});
+
+      const notifBookingId = String(
+        notif.booking_id ||
+        actionData?.booking_id ||
+        actionData?.bookingId ||
+        ''
+      ).trim();
+
+      if (cleanBookingId && notifBookingId === cleanBookingId) {
+        const convId =
+          notif.conversation_id ||
+          actionData?.conversation_id ||
+          actionData?.conversationId;
+        if (convId) {
+          return String(convId).trim();
+        }
+      }
+    }
+  }
+
+  return (booking as any)?.conversation_id || (booking as any)?.conversationId || null;
 };
 
 const extractImagesFromAgg = (raw: any): string[] => {
@@ -105,6 +332,7 @@ const REPORT_REASONS = [
 export default function OngoingRentalsScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { user, profile } = useAuth();
+  const { notifications, refreshNotifications } = useNotifications();
 
   const [rentals, setRentals] = useState<Booking[]>([]);
   const [selectedTab, setSelectedTab] = useState<'all' | 'renter' | 'owner'>('all');
@@ -210,26 +438,6 @@ export default function OngoingRentalsScreen() {
         reason: reportReason.trim(),
         description: reportDescription.trim(),
       });
-
-      // Best-effort secondary insert into Supabase reports table for admin dashboard sync if targetUserId exists
-      try {
-        const isRenter = reportingBooking.renter_id === user.id;
-        const targetUserId = isRenter ? reportingBooking.owner_id : reportingBooking.renter_id;
-        if (targetUserId) {
-          await supabase.from('reports').insert({
-            reported_by: user.id,
-            reported_user_id: targetUserId,
-            cycle_id: reportingBooking.cycle_id || null,
-            booking_id: cleanBookingId,
-            reporter_role: isRenter ? 'user' : 'owner',
-            reason: reportReason.trim(),
-            description: reportDescription.trim(),
-            status: 'pending',
-          });
-        }
-      } catch (syncErr) {
-        console.log('[OngoingRentalsScreen] Secondary Supabase report sync skipped:', syncErr);
-      }
 
       const successMsg =
         response?.message ||
@@ -378,8 +586,20 @@ export default function OngoingRentalsScreen() {
             row.pickupOtp ||
             (row.action_data && row.action_data.pickup_otp);
 
-          const returnOtp = extractValidOtp(rawReturnOtp);
-          const pickupOtp = extractValidOtp(rawPickupOtp);
+          const returnOtp =
+            extractValidOtp(rawReturnOtp) ||
+            getRenterOtpFromNotifications(
+              { id: bookingId, cycle_id: cycleId, cycle_title: cycleTitle, is_owner: isOwner } as any,
+              notifications,
+              true
+            );
+          const pickupOtp =
+            extractValidOtp(rawPickupOtp) ||
+            getRenterOtpFromNotifications(
+              { id: bookingId, cycle_id: cycleId, cycle_title: cycleTitle, is_owner: isOwner } as any,
+              notifications,
+              false
+            );
 
           return {
             id: bookingId,
@@ -430,90 +650,6 @@ export default function OngoingRentalsScreen() {
           };
         });
 
-        // Supplement OTPs and statuses from booking_table
-        try {
-          const bookingIds = mappedList.map((b) => b.id).filter(Boolean);
-          if (bookingIds.length > 0) {
-            const { data: bTableRows } = await supabase
-              .from('booking_table')
-              .select('id, status, return_otp, pickup_otp, otp_code')
-              .in('id', bookingIds);
-
-            if (bTableRows && Array.isArray(bTableRows)) {
-              const bMap = new Map(bTableRows.map((r) => [String(r.id), r]));
-              mappedList.forEach((item) => {
-                const bRow = bMap.get(item.id);
-                if (bRow) {
-                  const bReturn = extractValidOtp(bRow.return_otp);
-                  const bPickup = extractValidOtp(bRow.pickup_otp || bRow.otp_code);
-                  if (bReturn && !item.return_otp) item.return_otp = bReturn;
-                  if (bPickup && !item.otp_code) {
-                    item.otp_code = bPickup;
-                    item.pickup_otp = bPickup;
-                  }
-                  if (bRow.status && !['active', 'slot_booked'].includes(item.status)) {
-                    item.status = bRow.status as any;
-                  }
-                }
-              });
-            }
-          }
-        } catch (e) {
-          console.warn('[OngoingRentalsScreen] Fallback fetch from booking_table error:', e);
-        }
-
-        // Check recent notifications for any return OTP sent to renter
-        try {
-          if (user?.id) {
-            const { data: notifRows } = await supabase
-              .from('notifications')
-              .select('action_data, message, title, action_type')
-              .eq('user_id', user.id)
-              .order('created_at', { ascending: false })
-              .limit(30);
-
-            if (notifRows && Array.isArray(notifRows)) {
-              for (const notif of notifRows) {
-                const actionData = notif.action_data || {};
-                const notifBookingId = String(actionData.booking_id || actionData.bookingId || '');
-                const msg = String(notif.message || '');
-                const title = String(notif.title || '');
-                const actionType = String(notif.action_type || actionData.action_type || '').toLowerCase();
-
-                // Check if return was already accepted
-                if (
-                  actionType === 'enter_return_otp' ||
-                  actionData.status === 'return_accepted' ||
-                  title.toLowerCase().includes('return accepted') ||
-                  msg.toLowerCase().includes('return accepted')
-                ) {
-                  if (notifBookingId) {
-                    markReturnBookingAccepted(notifBookingId);
-                    setAcceptedReturnIds((prev) => new Set(prev).add(notifBookingId));
-                  }
-                }
-
-                const match =
-                  msg.match(/(?:return\s+otp(?:\s+code)?\s+is\s+|otp\s+is\s+|return\s+otp:\s*)(\d{4,6})/i) ||
-                  msg.match(/\b\d{6}\b/);
-                const extractedOtp = match ? match[1] || match[0] : null;
-
-                if (extractedOtp) {
-                  const target = notifBookingId
-                    ? mappedList.find((b) => b.id === notifBookingId)
-                    : mappedList[0];
-                  if (target && !target.return_otp) {
-                    console.log(`[OngoingRentalsScreen] Discovered return OTP ${extractedOtp} from notification for booking ${target.id}`);
-                    target.return_otp = extractedOtp;
-                  }
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[OngoingRentalsScreen] Fallback fetch from notifications error:', e);
-        }
-
         setRentals(mappedList);
         return;
       } else {
@@ -537,6 +673,7 @@ export default function OngoingRentalsScreen() {
   const onRefresh = () => {
     setRefreshing(true);
     fetchOngoingRentals();
+    refreshNotifications?.().catch(() => {});
   };
 
   const handlePaymentSuccess = async (paymentId: string) => {
@@ -572,6 +709,18 @@ export default function OngoingRentalsScreen() {
       (item.status as any) === 'return_accepted' ||
       acceptedReturnIds.has(item.id) ||
       isReturnBookingAccepted(item.id);
+
+    // Dynamically look up pickup/return OTP from notifications for renter if not present in item
+    const displayReturnOtp =
+      item.return_otp ||
+      getRenterOtpFromNotifications(item, notifications, true);
+
+    const displayPickupOtp =
+      item.otp_code ||
+      item.pickup_otp ||
+      getRenterOtpFromNotifications(item, notifications, false);
+
+    const displayOtp = isReturnOtpState ? displayReturnOtp : displayPickupOtp;
 
     return (
       <View style={styles.card}>
@@ -791,8 +940,8 @@ export default function OngoingRentalsScreen() {
               </View>
               <Text style={styles.returnRequestedDesc}>
                 {isRenter
-                  ? item.return_otp
-                    ? `Your return OTP is ${item.return_otp}. Please share it with the cycle owner to complete return.`
+                  ? displayReturnOtp
+                    ? `Your return OTP is ${displayReturnOtp}. Please share it with the cycle owner to complete return.`
                     : 'You have requested cycle return. Please meet the owner and provide the return OTP.'
                   : isAccepted
                   ? 'Return request accepted! Verify the cycle condition and enter Return OTP from renter to finish the booking.'
@@ -854,8 +1003,8 @@ export default function OngoingRentalsScreen() {
                   : 'Renter will provide Pickup OTP'}
               </Text>
               {isRenter ? (
-                <Text style={styles.otpCode}>
-                  {(isReturnOtpState ? (item.return_otp || item.otp_code) : item.otp_code) || '••••••'}
+                <Text style={styles.otpCode} selectable>
+                  {displayOtp || '••••••'}
                 </Text>
               ) : (
                 <TouchableOpacity
@@ -905,12 +1054,29 @@ export default function OngoingRentalsScreen() {
             <View style={styles.actionButtonsRow}>
               <TouchableOpacity
                 style={styles.chatBtn}
-                onPress={() =>
+                onPress={() => {
+                  const convId = getConversationIdFromNotifications(item, notifications);
+                  console.log(
+                    `[OngoingRentalsScreen] 💬 Chat pressed for booking ${item.id}. Passing id (conversation_id): "${convId}" to Chat.`
+                  );
+
                   navigation.navigate('Chat', {
+                    id: convId || undefined,
+                    conversationId: convId || undefined,
                     bookingId: item.id,
                     otherUserId: item.other_user_id || '',
-                    otherUserName: item.other_user_name || item.owner_name || 'User'})
-                }
+                    otherUserName: item.other_user_name || item.owner_name || 'User',
+                    isOwner: item.is_owner,
+                    myRole: item.is_owner ? 'owner' : 'renter',
+                    cycleName: `${item.brand || item.cycles?.brand || 'Cycle'} ${item.model || item.cycles?.model || ''}`.trim(),
+                    cycleImage: (item as any).image || (item.images && item.images[0]) || '',
+                    location: (item as any).location || item.cycles?.location || 'NITK Campus',
+                    rentalStatus: item.status,
+                    startTime: item.start_time || undefined,
+                    endTime: item.end_time || undefined,
+                    totalAmount: item.total_price || item.rental_price || 0,
+                  });
+                }}
               >
                 <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
                 <Text style={styles.chatBtnText}>Chat</Text>

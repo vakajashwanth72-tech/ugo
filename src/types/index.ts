@@ -44,7 +44,9 @@ export interface Cycle {
   hourlyPrice?: number;
   dailyPrice?: number;
   location: string;
-  status: 'available' | 'unavailable' | 'active' | 'inactive' | 'maintenance' | 'rented';
+  status: 'available' | 'unavailable' | 'active' | 'inactive' | 'maintenance' | 'rented' | 'booked' | 'in_use' | (string & {});
+  raw_status?: string;
+  cycle_status?: string;
   is_verified: boolean;
   geared?: boolean;
   gear_type?: string;
@@ -112,6 +114,7 @@ export interface Booking {
 export interface NotificationItem {
   id: string;
   booking_id?: string;
+  conversation_id?: string;
   user_id: string;
   title: string;
   message: string;

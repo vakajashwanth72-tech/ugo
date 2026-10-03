@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiClient } from './apiClient';
 
 export interface AcceptedOtpPayload {
   notificationId?: string;
@@ -26,10 +27,10 @@ class AcceptedOtpCoordinatorManager {
   private payload: AcceptedOtpPayload | null = null;
   private listeners: Set<Listener> = new Set();
   private shownSetInMemory: Set<string> = new Set();
-  private initialized = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
-    this.initStorage();
+    this.initPromise = this.initStorage();
   }
 
   private async initStorage() {
@@ -43,8 +44,6 @@ class AcceptedOtpCoordinatorManager {
       }
     } catch (e) {
       console.warn('[AcceptedOtpCoordinator] Error loading shown OTPs set:', e);
-    } finally {
-      this.initialized = true;
     }
   }
 
@@ -82,6 +81,10 @@ class AcceptedOtpCoordinatorManager {
     const cleanKey = String(uniqueKey).trim();
     if (!cleanKey) return false;
 
+    if (this.initPromise) {
+      await this.initPromise;
+    }
+
     if (this.shownSetInMemory.has(cleanKey)) {
       return true;
     }
@@ -101,14 +104,14 @@ class AcceptedOtpCoordinatorManager {
   }
 
   /**
-   * Marks a notification or booking ID as shown so it won't repeat on future polls.
+   * Marks notification or booking IDs as shown so they won't repeat on future polls.
    */
-  public async markAsShown(uniqueKey?: string): Promise<void> {
-    if (!uniqueKey) return;
-    const cleanKey = String(uniqueKey).trim();
-    if (!cleanKey) return;
+  public async markAsShown(keys: string | string[]): Promise<void> {
+    const keyList = Array.isArray(keys) ? keys : [keys];
+    const validKeys = keyList.map((k) => String(k).trim()).filter(Boolean);
+    if (validKeys.length === 0) return;
 
-    this.shownSetInMemory.add(cleanKey);
+    validKeys.forEach((k) => this.shownSetInMemory.add(k));
 
     try {
       const raw = await AsyncStorage.getItem(SHOWN_OTPS_KEY);
@@ -117,10 +120,15 @@ class AcceptedOtpCoordinatorManager {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) arr = parsed;
       }
-      if (!arr.includes(cleanKey)) {
-        arr.push(cleanKey);
-        // Retain at most the last 100 entries to avoid bloating storage
-        if (arr.length > 100) arr = arr.slice(-100);
+      let modified = false;
+      validKeys.forEach((k) => {
+        if (!arr.includes(k)) {
+          arr.push(k);
+          modified = true;
+        }
+      });
+      if (modified) {
+        if (arr.length > 200) arr = arr.slice(-200);
         await AsyncStorage.setItem(SHOWN_OTPS_KEY, JSON.stringify(arr));
       }
     } catch (err) {
@@ -143,28 +151,86 @@ class AcceptedOtpCoordinatorManager {
       return false;
     }
 
-    const key = payload.notificationId || payload.bookingId || payload.otp;
+    const keysToMark: string[] = [];
+    if (payload.notificationId) {
+      keysToMark.push(
+        String(payload.notificationId),
+        `id_${payload.notificationId}`,
+        `return_id_${payload.notificationId}`
+      );
+    }
+    if (payload.bookingId) {
+      keysToMark.push(
+        String(payload.bookingId),
+        `booking_${payload.bookingId}`,
+        `booking_return_${payload.bookingId}`
+      );
+    }
+    if (payload.otp) {
+      keysToMark.push(String(payload.otp), `otp_${payload.otp}`);
+    }
+
     console.log(`[AcceptedOtpCoordinator] 🎉 Triggering Booking Accepted Celebration Modal! OTP: ${payload.otp}`);
 
     this.isVisible = true;
     this.payload = payload;
     this.notify();
 
-    if (key) {
-      this.markAsShown(key);
+    if (keysToMark.length > 0) {
+      this.markAsShown(keysToMark);
     }
 
     return true;
   }
 
   /**
-   * Dismisses the celebration modal.
+   * Dismisses the celebration modal and marks the notification as read on the backend API.
    */
-  public dismiss() {
-    console.log('[AcceptedOtpCoordinator] Dismissing celebration modal.');
+  public async dismiss(notificationId?: string, bookingId?: string): Promise<void> {
+    const activePayload = this.payload;
+    const targetNotifId = notificationId || activePayload?.notificationId;
+    const targetBookingId = bookingId || activePayload?.bookingId;
+    const targetOtp = activePayload?.otp;
+
+    console.log(`[AcceptedOtpCoordinator] Dismissing celebration modal. Target Notif: ${targetNotifId || 'none'}`);
+
+    // Persist all keys to ensure it never re-triggers
+    const keysToPersist: string[] = [];
+    if (targetNotifId) {
+      keysToPersist.push(
+        String(targetNotifId),
+        `id_${targetNotifId}`,
+        `return_id_${targetNotifId}`
+      );
+    }
+    if (targetBookingId) {
+      keysToPersist.push(
+        String(targetBookingId),
+        `booking_${targetBookingId}`,
+        `booking_return_${targetBookingId}`
+      );
+    }
+    if (targetOtp) {
+      keysToPersist.push(String(targetOtp), `otp_${targetOtp}`);
+    }
+
+    if (keysToPersist.length > 0) {
+      await this.markAsShown(keysToPersist);
+    }
+
     this.isVisible = false;
     this.payload = null;
     this.notify();
+
+    // Call suitable backend API endpoint to mark the notification as read
+    if (targetNotifId) {
+      try {
+        console.log(`[AcceptedOtpCoordinator] Calling PATCH /api/notifications/mark-notifications for [${targetNotifId}]`);
+        await apiClient.markNotifications([String(targetNotifId)]);
+      } catch (err: any) {
+        console.warn('[AcceptedOtpCoordinator] Backend markNotifications error on dismiss:', err?.message || err);
+      }
+    }
   }
 
   /**

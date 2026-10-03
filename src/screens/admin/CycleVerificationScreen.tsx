@@ -16,7 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
-import { supabase } from '../../lib/supabase';
 import { apiClient } from '../../lib/apiClient';
 import { useAuth } from '../../hooks/useAuth';
 import Header from '../../components/ui/Header';
@@ -126,21 +125,6 @@ export default function CycleVerificationScreen() {
             phone: extractedPhone || '',
             hostel: extractedLocation || 'NITK Campus',
           });
-        } else if (details?.owner_id) {
-          // Fallback: fetch profile from Supabase if owner name wasn't joined directly
-          try {
-            const { data: ownerProfile } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', details.owner_id)
-              .single();
-
-            if (ownerProfile) {
-              setOwner(ownerProfile);
-            }
-          } catch (profileErr) {
-            console.warn('[CycleVerificationScreen] Profile fetch note:', profileErr);
-          }
         }
 
         // Collect and normalize all images
@@ -184,32 +168,6 @@ export default function CycleVerificationScreen() {
         setImages(uniqueUrls);
       } catch (err: any) {
         console.error('[CycleVerificationScreen] Error fetching cycle details:', err?.message || err);
-        // Secondary fallback to Supabase
-        try {
-          const { data: cycleData, error: cycleErr } = await supabase
-            .from('cycles')
-            .select(`
-              *,
-              cycle_images (image_url, storage_path, display_order)
-            `)
-            .eq('id', cycleId)
-            .single();
-
-          if (!cycleErr && cycleData) {
-            setCycle(cycleData);
-            if (cycleData.owner_id) {
-              const { data: ownerProfile } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', cycleData.owner_id)
-                .single();
-              if (ownerProfile) setOwner(ownerProfile);
-            }
-            setImages(extractCycleImages(cycleData));
-          }
-        } catch (sbErr) {
-          console.error('[CycleVerificationScreen] Fallback fetch error:', sbErr);
-        }
       } finally {
         setLoading(false);
       }
@@ -233,31 +191,13 @@ export default function CycleVerificationScreen() {
 
       console.log(`[CycleVerificationScreen] Submitting verification decision: status=${statusToSend}, cycle_id=${cycleId}, reason=${reason}`);
 
-      // 1. Dispatch POST request to /api/cycles/cycle-verification via apiClient
+      // Dispatch POST request to /api/cycles/cycle-verification via apiClient
       const res = await apiClient.verifyCycleListing({
         cycle_id: cycleId,
         status: statusToSend,
         reason: reason.trim(),
       });
       console.log('[CycleVerificationScreen] Backend verify listing response:', res);
-
-      // 2. Also keep Supabase updated if available
-      try {
-        const { error: updateErr } = await supabase
-          .from('cycles')
-          .update({
-            status: newStatus,
-            is_verified: isVerified,
-            verification_notes: reason.trim() || null,
-          })
-          .eq('id', cycleId);
-
-        if (updateErr) {
-          console.warn('[CycleVerificationScreen] Supabase update note:', updateErr.message);
-        }
-      } catch (sbErr) {
-        console.warn('[CycleVerificationScreen] Supabase update exception:', sbErr);
-      }
 
       const message =
         res?.message ||
