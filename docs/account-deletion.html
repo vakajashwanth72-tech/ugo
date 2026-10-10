@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account & Data Deletion - UgO NITK</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0f1d;
+            --bg-secondary: #111827;
+            --bg-card: #162032;
+            --border-color: #233149;
+            --accent-cyan: #06b6d4;
+            --accent-blue: #3b82f6;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-sub: #cbd5e1;
+            --danger-bg: rgba(239, 68, 68, 0.12);
+            --danger-border: rgba(239, 68, 68, 0.35);
+            --danger-text: #f87171;
+            --success-bg: rgba(16, 185, 129, 0.12);
+            --success-text: #34d399;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            line-height: 1.7;
+            padding-bottom: 60px;
+        }
+
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: rgba(10, 15, 29, 0.88);
+            backdrop-filter: blur(14px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 24px;
+        }
+
+        .nav-container {
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .brand-box {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .brand-logo {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            object-fit: contain;
+            background: #000;
+            border: 1px solid var(--border-color);
+        }
+
+        .brand-name {
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #38bdf8 0%, #06b6d4 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: color 0.2s ease;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent-cyan);
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 24px;
+        }
+
+        .hero {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 32px 20px;
+            background: linear-gradient(180deg, rgba(239, 68, 68, 0.08) 0%, rgba(10, 15, 29, 0) 100%);
+            border-radius: 24px;
+            border: 1px solid var(--danger-border);
+        }
+
+        .badge {
+            display: inline-block;
+            background: var(--danger-bg);
+            color: var(--danger-text);
+            padding: 4px 14px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 14px;
+            border: 1px solid var(--danger-border);
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            line-height: 1.25;
+            margin-bottom: 12px;
+            letter-spacing: -0.03em;
+        }
+
+        .content-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            padding: 32px;
+            margin-bottom: 28px;
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3);
+        }
+
+        h2 {
+            font-size: 1.35rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        p {
+            color: var(--text-sub);
+            margin-bottom: 14px;
+            font-size: 0.98rem;
+        }
+
+        ul, ol {
+            margin-left: 24px;
+            margin-bottom: 16px;
+            color: var(--text-sub);
+        }
+
+        li {
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+
+        .grid-two {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .info-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .info-panel h3 {
+            font-size: 1.05rem;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .info-panel.deleted h3 {
+            color: var(--danger-text);
+        }
+
+        .info-panel.retained h3 {
+            color: var(--accent-cyan);
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        input[type="text"], input[type="email"], textarea {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: border-color 0.2s ease;
+        }
+
+        input[type="text"]:focus, input[type="email"]:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+        }
+
+        .btn-submit {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 1rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4);
+            text-decoration: none;
+        }
+
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.6);
+        }
+
+        footer {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-top: 40px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .grid-two { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="nav-container">
+            <a href="index.html" class="brand-box">
+                <img src="logo.png" alt="UgO Logo" class="brand-logo">
+                <span class="brand-name">UgO NITK</span>
+            </a>
+            <div class="nav-links">
+                <a href="index.html">&larr; Back to Privacy Policy</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <section class="hero">
+            <span class="badge">Google Play Data Safety Compliance</span>
+            <h1>Account & Data Deletion Request</h1>
+            <p style="color: var(--text-muted); max-width: 650px; margin: 0 auto;">
+                Users of the UgO NITK mobile app have the right to request the permanent deletion of their account and all associated personal records at any time.
+            </p>
+        </section>
+
+        <!-- What Happens Section -->
+        <div class="content-card">
+            <h2>Data Deletion & Retention Overview</h2>
+            <p>
+                In strict compliance with the Google Play Developer Account Deletion Policy, this page details the steps to request account deletion, what personal data will be purged, and what minimal records must be retained under applicable statutory laws.
+            </p>
+
+            <div class="grid-two">
+                <div class="info-panel deleted">
+                    <h3>&#10005; Data Permanently Deleted</h3>
+                    <ul>
+                        <li>Full Name, NITK Email Address, and Phone Number</li>
+                        <li>Campus Hostel, Room, and Roll Number Details</li>
+                        <li>Authentication credentials and password hashes</li>
+                        <li>Uploaded cycle images and listing descriptions</li>
+                        <li>Cycle verification pickup/return photographs</li>
+                        <li>Firebase Cloud Messaging (FCM) push tokens</li>
+                        <li>Live telemetry, location traces, and ride routes</li>
+                    </ul>
+                </div>
+
+                <div class="info-panel retained">
+                    <h3>&#9888; Data Retained (Statutory Requirements)</h3>
+                    <ul>
+                        <li>
+                            <strong>Razorpay Payment Records & Receipts:</strong>
+                            Transaction references, rental fees, and security deposit settlements are retained for 7 years strictly in accordance with Indian tax statutes and financial regulations.
+                        </li>
+                        <li>
+                            <strong>Anonymized Aggregate Stats:</strong>
+                            Non-identifiable usage metrics (e.g., total campus rides completed) retained for academic research and carbon-reduction reporting.
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <p style="margin-top: 16px;">
+                <strong>Processing Timeline:</strong> Once submitted and verified against your registered email, all deletion requests are permanently executed within <strong>7 business days</strong>.
+            </p>
+        </div>
+
+        <!-- Deletion Methods -->
+        <div class="content-card">
+            <h2>How to Request Account Deletion</h2>
+            
+            <h3 style="color: var(--accent-cyan); font-size: 1.1rem; margin-bottom: 8px;">Method 1: In-App Request (Recommended)</h3>
+            <p>If you have the UgO NITK app installed on your Android device:</p>
+            <ol>
+                <li>Open the <strong>UgO NITK</strong> application.</li>
+                <li>Tap on the <strong>Profile</strong> tab in the bottom navigation.</li>
+                <li>Scroll down and tap <strong>Account Settings</strong> &rarr; <strong>Request Account Deletion</strong>.</li>
+                <li>Confirm your request. Your account will immediately enter a scheduled purge queue.</li>
+            </ol>
+
+            <hr style="border: none; border-top: 1px solid var(--border-color); margin: 24px 0;">
+
+            <h3 style="color: var(--accent-cyan); font-size: 1.1rem; margin-bottom: 8px;">Method 2: Web Deletion Request Form</h3>
+            <p>If you have uninstalled the app or cannot sign in, fill out the form below to submit a formal deletion request directly to the <strong>UgO Cycle Sharing Team</strong>:</p>
+
+            <form id="deletionForm" onsubmit="generateMailto(event)" style="margin-top: 20px;">
+                <div class="form-group">
+                    <label for="fullName">Full Name (as registered on UgO)</label>
+                    <input type="text" id="fullName" placeholder="e.g. Jaswanth Vaka" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="userEmail">Registered NITK Email Address</label>
+                    <input type="email" id="userEmail" placeholder="e.g. student@nitk.edu.in" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="userPhone">Registered Mobile Phone Number</label>
+                    <input type="text" id="userPhone" placeholder="e.g. +91 9876543210" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="rollNumber">Roll Number / Hostel (Optional)</label>
+                    <input type="text" id="rollNumber" placeholder="e.g. 211CS123 / Mega Tower 1">
+                </div>
+
+                <div class="form-group">
+                    <label for="reason">Reason for Deletion (Optional)</label>
+                    <textarea id="reason" rows="3" placeholder="Graduated / No longer using the service / Other"></textarea>
+                </div>
+
+                <button type="submit" class="btn-submit">
+                    Send Deletion Request via Email &rarr;
+                </button>
+            </form>
+
+            <div style="background: var(--bg-secondary); border-radius: 10px; padding: 16px; margin-top: 20px; border: 1px solid var(--border-color); font-size: 0.9rem;">
+                <p style="margin-bottom: 4px;"><strong>Prefer sending email manually?</strong></p>
+                <p style="margin-bottom: 0;">Send an email from your registered NITK address to <a href="mailto:ugocyclesharing@gmail.com?subject=UgO%20Account%20Deletion%20Request" style="color: var(--accent-cyan); font-weight: 700;">ugocyclesharing@gmail.com</a> with the subject <code>UgO Account Deletion Request</code> including your name, registered phone number, and roll number.</p>
+            </div>
+        </div>
+
+        <footer>
+            <p>&copy; 2026 UgO Cycle Sharing Team &bull; NITK Surathkal. All rights reserved.</p>
+            <p style="margin-top: 6px;"><a href="index.html" style="color: var(--accent-cyan); text-decoration: none;">View Full Privacy Policy</a></p>
+        </footer>
+
+    </div>
+
+    <script>
+        function generateMailto(e) {
+            e.preventDefault();
+            const name = document.getElementById('fullName').value.trim();
+            const email = document.getElementById('userEmail').value.trim();
+            const phone = document.getElementById('userPhone').value.trim();
+            const roll = document.getElementById('rollNumber').value.trim();
+            const reason = document.getElementById('reason').value.trim();
+
+            const subject = encodeURIComponent("UgO Account & Data Deletion Request - " + name);
+            const body = encodeURIComponent(
+                "Dear UgO Cycle Sharing Team,\n\n" +
+                "I am writing to formally request the permanent deletion of my UgO NITK account and all associated personal data in accordance with the Google Play Account Deletion Policy.\n\n" +
+                "Account Details:\n" +
+                "- Full Name: " + name + "\n" +
+                "- Registered NITK Email: " + email + "\n" +
+                "- Phone Number: " + phone + "\n" +
+                "- Roll No / Hostel: " + (roll || "N/A") + "\n" +
+                "- Reason for Deletion: " + (reason || "N/A") + "\n\n" +
+                "I understand that active listings and profile information will be purged within 7 business days, while statutory payment audit records are retained as required by Indian law.\n\n" +
+                "Thank you,\n" + name
+            );
+
+            window.location.href = "mailto:ugocyclesharing@gmail.com?subject=" + subject + "&body=" + body;
+        }
+    </script>
+</body>
+</html>

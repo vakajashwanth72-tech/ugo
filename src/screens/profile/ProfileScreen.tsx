@@ -11,12 +11,16 @@ import {
   StatusBar,
   Image,
   RefreshControl,
+  Switch,
+  InteractionManager,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing, typography, borderRadius, shadows } from '../../lib/theme';
+import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../hooks/useAuth';
 import { apiClient, normalizeProfileData, UserProfileData } from '../../lib/apiClient';
 import Header from '../../components/ui/Header';
@@ -26,22 +30,68 @@ import Badge from '../../components/ui/Badge';
 import RentalBottomNav from '../../components/RentalBottomNav';
 import SwipeableScreenWrapper from '../../components/SwipeableScreenWrapper';
 import { RootStackParamList } from '../../navigation/navigationTypes';
+import { invalidateCycleCache } from '../../hooks/useAvailableCycles';
+import { invalidateMyCyclesCache } from '../../hooks/useMyCycles';
+import { invalidateOngoingRentalsCache } from '../rentals/OngoingRentalsScreen';
+import { invalidateNotificationsCache } from '../../hooks/useNotifications';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+// Module-level in-memory cache for Profile (persists across tab switches)
+let memoryCachedProfile: UserProfileData | null = null;
+let lastProfileFetchedAt = 0;
+const PROFILE_STALE_TIME_MS = 2 * 60 * 1000; // 2 minutes
+
+function hasProfileChanged(oldP: UserProfileData | null, newP: UserProfileData | null): boolean {
+  if (!oldP && !newP) return false;
+  if (!oldP || !newP) return true;
+  return (
+    oldP.full_name !== newP.full_name ||
+    oldP.phone !== newP.phone ||
+    oldP.hostel !== newP.hostel ||
+    oldP.avatar_url !== newP.avatar_url ||
+    oldP.net_balance !== newP.net_balance ||
+    oldP.email !== newP.email
+  );
+}
+
+export function invalidateProfileCache(): void {
+  lastProfileFetchedAt = 0;
+}
+
+export function getMemoryCachedProfile(): UserProfileData | null {
+  return memoryCachedProfile;
+}
+
+export async function preloadProfile(): Promise<void> {
+  const now = Date.now();
+  if (memoryCachedProfile !== null && now - lastProfileFetchedAt < PROFILE_STALE_TIME_MS) {
+    return;
+  }
+  try {
+    const res = await apiClient.getProfile();
+    const data = normalizeProfileData(res);
+    if (data) {
+      memoryCachedProfile = data;
+      lastProfileFetchedAt = Date.now();
+    }
+  } catch {}
+}
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { user, isAdmin, logout } = useAuth();
+  const { themeMode, isDark, palette, colors, availablePalettes, toggleTheme, setPalette } = useTheme();
 
-  // Ephemeral component state - strictly exists ONLY while this screen is active
-  const [profileData, setProfileData] = useState<UserProfileData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 1. Instant Cache Reads: Initialize synchronously from memory cache
+  const [profileData, setProfileData] = useState<UserProfileData | null>(() => memoryCachedProfile);
+  const [loading, setLoading] = useState<boolean>(() => memoryCachedProfile === null);
   const [refreshing, setRefreshing] = useState(false);
 
   const [isEditing, setIsEditing] = useState(false);
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [hostel, setHostel] = useState('');
+  const [fullName, setFullName] = useState(() => memoryCachedProfile?.full_name || '');
+  const [phone, setPhone] = useState(() => memoryCachedProfile?.phone || '');
+  const [hostel, setHostel] = useState(() => memoryCachedProfile?.hostel || '');
   const [chosenAvatar, setChosenAvatar] = useState<string | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -88,7 +138,6 @@ export default function ProfileScreen() {
   }, [getCollectedDetails]);
 
   // Fetches live profile data from backend GET /api/profile
-  // Backend query: select created_at,full_name,email,phone,avatar_url,updated_at,hostel,net_balance from profiles where id = $1 and is_verified = true
   const fetchProfileFromApi = useCallback(async (isPullToRefresh = false) => {
     if (isFetchingRef.current && !isPullToRefresh) {
       console.log('[ProfileScreen] Profile fetch already running, skipping duplicate call.');
@@ -97,21 +146,34 @@ export default function ProfileScreen() {
     isFetchingRef.current = true;
 
     try {
-      if (!isPullToRefresh) setLoading(true);
-      console.log('[ProfileScreen] Fetching profile from GET /api/profile with session access token...');
+      if (isPullToRefresh) {
+        setRefreshing(true);
+      } else if (memoryCachedProfile === null) {
+        setLoading(true);
+      }
+      console.log('[ProfileScreen] Silently fetching profile from GET /api/profile with session access token...');
       const res = await apiClient.getProfile();
       console.log('[ProfileScreen] Received profile response from backend:', res);
 
       const data = normalizeProfileData(res);
       if (data) {
-        setProfileData(data);
-        const meta = (user as any)?.user_metadata || {};
-        const initialName = data.full_name || meta.full_name || meta.name || user?.email?.split('@')[0] || '';
-        const initialPhone = data.phone || meta.phone || '';
-        const initialHostel = data.hostel || meta.hostel || '';
-        setFullName(initialName);
-        setPhone(initialPhone);
-        setHostel(initialHostel);
+        const changed = hasProfileChanged(memoryCachedProfile, data);
+        memoryCachedProfile = data;
+        lastProfileFetchedAt = Date.now();
+
+        if (changed || !profileData) {
+          console.log('[ProfileScreen] Profile data updated. Updating UI smoothly.');
+          setProfileData(data);
+          const meta = (user as any)?.user_metadata || {};
+          const initialName = data.full_name || meta.full_name || meta.name || user?.email?.split('@')[0] || '';
+          const initialPhone = data.phone || meta.phone || '';
+          const initialHostel = data.hostel || meta.hostel || '';
+          setFullName(initialName);
+          setPhone(initialPhone);
+          setHostel(initialHostel);
+        } else {
+          console.log('[ProfileScreen] Profile data is identical, refreshed timestamp.');
+        }
       }
     } catch (err: any) {
       console.error('[ProfileScreen] Error fetching profile from /api/profile:', err?.message || err);
@@ -120,30 +182,35 @@ export default function ProfileScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [user, profileData]);
 
-  // Screen Lifecycle:
-  // 1. When user navigates TO this screen (focus): makes API call to GET /api/profile, stores in local state, and renders.
-  // 2. When user moves OUT of this screen (blur / unmount): immediately DELETES profile data from memory.
-  // 3. When user returns: automatically triggers a fresh API call and stores afresh.
+  // 2. Smart Expiry (staleTime: 2 minutes) & Tab Switch Handling
   useFocusEffect(
     useCallback(() => {
-      console.log('[ProfileScreen] Screen focused: fetching user profile from API...');
-      fetchProfileFromApi();
+      const now = Date.now();
+      const isFresh = memoryCachedProfile !== null && (now - lastProfileFetchedAt < PROFILE_STALE_TIME_MS);
 
-      return () => {
-        console.log('[ProfileScreen] Navigated away: deleting user profile data from memory.');
-        // Completely wipe data from component memory
-        setProfileData(null);
-        setFullName('');
-        setPhone('');
-        setHostel('');
-        setChosenAvatar(undefined);
-        setIsEditing(false);
-        setLoading(true);
-        isFetchingRef.current = false;
-      };
-    }, [fetchProfileFromApi])
+      if (isFresh) {
+        const ageSec = Math.round((now - lastProfileFetchedAt) / 1000);
+        console.log(`[ProfileScreen] Memory cache is FRESH (${ageSec}s old < 120s). ZERO network requests triggered on tab switch.`);
+        if (memoryCachedProfile && memoryCachedProfile !== profileData) {
+          setProfileData(memoryCachedProfile);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Defer API processing until touch-swipe animation settles!
+      console.log(
+        memoryCachedProfile === null
+          ? '[ProfileScreen] Initial load, fetching profile...'
+          : `[ProfileScreen] Cache is stale (${Math.round((now - lastProfileFetchedAt) / 1000)}s old). Revalidating in background after interactions...`
+      );
+      const task = InteractionManager.runAfterInteractions(() => {
+        fetchProfileFromApi(false);
+      });
+      return () => task.cancel();
+    }, [fetchProfileFromApi, profileData])
   );
 
   const collected = getCollectedDetails();
@@ -280,17 +347,20 @@ export default function ProfileScreen() {
       const res = await apiClient.editProfile(editPayload);
       console.log('[ProfileScreen] editProfile response from backend:', res);
 
-      // Optimistically update ephemeral component state
-      setProfileData((prev) => ({
-        created_at: prev?.created_at || null,
+      // Optimistically update state and in-memory cache
+      const updatedProfileObj: UserProfileData = {
+        created_at: profileData?.created_at || null,
         full_name: editPayload.full_name,
         phone: editPayload.phone,
         avatar_url: editPayload.avatar_url,
         hostel: editPayload.hostel,
         updated_at: new Date().toISOString(),
-        email: prev?.email || user?.email || '',
-        net_balance: prev?.net_balance || 0,
-      }));
+        email: profileData?.email || user?.email || '',
+        net_balance: profileData?.net_balance || 0,
+      };
+      setProfileData(updatedProfileObj);
+      memoryCachedProfile = updatedProfileObj;
+      lastProfileFetchedAt = Date.now();
 
       setChosenAvatar(undefined);
       setIsEditing(false);
@@ -312,6 +382,12 @@ export default function ProfileScreen() {
         onPress: async () => {
           try {
             setLoggingOut(true);
+            memoryCachedProfile = null;
+            lastProfileFetchedAt = 0;
+            invalidateCycleCache(true);
+            invalidateMyCyclesCache(true);
+            invalidateOngoingRentalsCache(true);
+            invalidateNotificationsCache();
             await logout();
             navigation.reset({
               index: 0,
@@ -341,9 +417,61 @@ export default function ProfileScreen() {
   const displayPhone = profileData?.phone || collected.phone || 'Not set';
   const displayHostel = profileData?.hostel || collected.hostel || 'Not set';
 
+  const handlePrivacyPolicy = () => {
+    Linking.openURL('https://vakajashwanth72-tech.github.io/ugo/').catch((err) => {
+      console.warn('Could not open privacy policy URL:', err);
+      Alert.alert('Privacy Policy', 'Please visit https://vakajashwanth72-tech.github.io/ugo/ in your browser.');
+    });
+  };
+
+  const handleRequestAccountDeletion = () => {
+    Alert.alert(
+      'Account & Data Deletion',
+      'Under Google Play policy and UgO guidelines, you can permanently delete your account and personal records.\n\n' +
+      '• Profile, cycle listings, and verification photos are permanently purged within 7 business days.\n' +
+      '• Statutory payment audit logs are retained as required by Indian financial law.\n\n' +
+      'How would you like to proceed?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Open Web Portal',
+          onPress: () => {
+            Linking.openURL('https://vakajashwanth72-tech.github.io/ugo/account-deletion.html').catch((err) => {
+              console.warn('Could not open deletion URL:', err);
+            });
+          },
+        },
+        {
+          text: 'Send Email Request',
+          style: 'destructive',
+          onPress: () => {
+            const subject = encodeURIComponent(`UgO Account Deletion Request - ${displayName}`);
+            const body = encodeURIComponent(
+              `Dear UgO Cycle Sharing Team,\n\n` +
+              `I hereby request the permanent deletion of my UgO NITK account and associated data.\n\n` +
+              `Account Details:\n` +
+              `- Full Name: ${displayName}\n` +
+              `- Registered Email: ${displayEmail}\n` +
+              `- Registered Phone: ${displayPhone}\n` +
+              `- Hostel / Room: ${displayHostel}\n\n` +
+              `I understand that active data will be purged within 7 business days, while statutory payment audit records are retained as required by law.\n\n` +
+              `Thank you,\n${displayName}`
+            );
+            Linking.openURL(`mailto:ugocyclesharing@gmail.com?subject=${subject}&body=${body}`).catch(() => {
+              Alert.alert(
+                'Email Client Unavailable',
+                'Please send an email from your registered address to ugocyclesharing@gmail.com with your request.'
+              );
+            });
+          },
+        },
+      ]
+    );
+  };
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.surface} />
       <Header
         title={isEditing ? 'Edit Profile' : 'My Profile'}
         showBack
@@ -355,7 +483,7 @@ export default function ProfileScreen() {
 
       <SwipeableScreenWrapper currentTab="profile" disableSwipe={isEditing}>
         <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: colors.background }]}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
@@ -369,18 +497,18 @@ export default function ProfileScreen() {
         {loading && !profileData ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.accent} />
-            <Text style={styles.loadingText}>Loading profile details...</Text>
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading profile details...</Text>
           </View>
         ) : (
           <>
             {/* User Avatar Card */}
-            <View style={styles.avatarCard}>
+            <View style={[styles.avatarCard, { borderBottomColor: colors.border }]}>
               <TouchableOpacity
                 activeOpacity={isEditing ? 0.7 : 1}
                 onPress={isEditing ? handlePickAvatar : undefined}
                 style={styles.avatarCircleContainer}
               >
-                <View style={styles.avatarCircle}>
+                <View style={[styles.avatarCircle, { backgroundColor: colors.primary }]}>
                   {currentAvatar ? (
                     <Image source={{ uri: currentAvatar }} style={styles.avatarImage} resizeMode="cover" />
                   ) : (
@@ -390,21 +518,21 @@ export default function ProfileScreen() {
                   )}
                 </View>
                 {isEditing && (
-                  <View style={styles.avatarEditBadge}>
+                  <View style={[styles.avatarEditBadge, { backgroundColor: colors.accent, borderColor: colors.surface }]}>
                     <Ionicons name="camera" size={16} color={colors.white} />
                   </View>
                 )}
               </TouchableOpacity>
 
               {isEditing && (
-                <TouchableOpacity onPress={handlePickAvatar} style={styles.changeAvatarBtn}>
-                  <Ionicons name="camera-outline" size={16} color={colors.primary} />
-                  <Text style={styles.changeAvatarText}>Change Photo</Text>
+                <TouchableOpacity onPress={handlePickAvatar} style={[styles.changeAvatarBtn, { backgroundColor: colors.surfaceLight }]}>
+                  <Ionicons name="camera-outline" size={16} color={colors.accent} />
+                  <Text style={[styles.changeAvatarText, { color: colors.accent }]}>Change Photo</Text>
                 </TouchableOpacity>
               )}
 
-              <Text style={styles.userName}>{displayName}</Text>
-              <Text style={styles.userEmail}>{displayEmail}</Text>
+              <Text style={[styles.userName, { color: colors.textPrimary }]}>{displayName}</Text>
+              <Text style={[styles.userEmail, { color: colors.textSecondary }]}>{displayEmail}</Text>
 
               <View style={styles.badgeRow}>
                 <Badge variant="primary" label={isAdmin ? 'Admin' : 'NITK Member'} />
@@ -414,33 +542,33 @@ export default function ProfileScreen() {
 
             {/* Wallet / Net Balance Card (Hidden in edit mode) */}
             {!isEditing && (
-              <View style={styles.balanceCard}>
+              <View style={[styles.balanceCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <View>
-                  <Text style={styles.balanceLabel}>UgO Balance / Earnings</Text>
-                  <Text style={[styles.balanceAmount, netBalance < 0 && styles.negativeBalance]}>
+                  <Text style={[styles.balanceLabel, { color: colors.textSecondary }]}>UgO Balance / Earnings</Text>
+                  <Text style={[styles.balanceAmount, { color: colors.accent }, netBalance < 0 && styles.negativeBalance]}>
                     {netBalance < 0 ? `-₹${Math.abs(netBalance)}` : `₹${netBalance}`}
                   </Text>
                   {netBalance < 0 ? (
                     <Text style={styles.dueHint}>Outstanding dues from overdue rentals</Text>
                   ) : (
-                    <Text style={styles.creditHint}>Available for withdrawal or rides</Text>
+                    <Text style={[styles.creditHint, { color: colors.textLight }]}>Available for withdrawal or rides</Text>
                   )}
                 </View>
 
                 <TouchableOpacity
-                  style={styles.historyBtn}
+                  style={[styles.historyBtn, { backgroundColor: colors.surfaceLight, borderColor: colors.border }]}
                   onPress={() => navigation.navigate('Wallet')}
                 >
-                  <Ionicons name="wallet-outline" size={18} color={colors.primary} />
-                  <Text style={styles.historyBtnText}>Wallet & Payouts</Text>
+                  <Ionicons name="wallet-outline" size={18} color={colors.accent} />
+                  <Text style={[styles.historyBtnText, { color: colors.accent }]}>Wallet & Payouts</Text>
                 </TouchableOpacity>
               </View>
             )}
 
             {/* Edit or View Profile Form */}
-            <View style={styles.formCard}>
+            <View style={[styles.formCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionHeader}>Personal Details</Text>
+                <Text style={[styles.sectionHeader, { color: colors.textPrimary }]}>Personal Details</Text>
                 {!isEditing ? (
                   <TouchableOpacity
                     style={styles.editHeaderBtn}
@@ -503,32 +631,32 @@ export default function ProfileScreen() {
                   <View style={styles.detailItem}>
                     <Ionicons name="person-outline" size={20} color={colors.textSecondary} />
                     <View style={styles.detailCol}>
-                      <Text style={styles.detailLabel}>Full Name</Text>
-                      <Text style={styles.detailValue}>{displayName}</Text>
+                      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Full Name</Text>
+                      <Text style={[styles.detailValue, { color: colors.textPrimary }]}>{displayName}</Text>
                     </View>
                   </View>
 
                   <View style={styles.detailItem}>
                     <Ionicons name="call-outline" size={20} color={colors.textSecondary} />
                     <View style={styles.detailCol}>
-                      <Text style={styles.detailLabel}>Phone Number</Text>
-                      <Text style={styles.detailValue}>{displayPhone}</Text>
+                      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Phone Number</Text>
+                      <Text style={[styles.detailValue, { color: colors.textPrimary }]}>{displayPhone}</Text>
                     </View>
                   </View>
 
                   <View style={styles.detailItem}>
                     <Ionicons name="home-outline" size={20} color={colors.textSecondary} />
                     <View style={styles.detailCol}>
-                      <Text style={styles.detailLabel}>Hostel / Residence</Text>
-                      <Text style={styles.detailValue}>{displayHostel}</Text>
+                      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Hostel / Residence</Text>
+                      <Text style={[styles.detailValue, { color: colors.textPrimary }]}>{displayHostel}</Text>
                     </View>
                   </View>
 
                   <View style={styles.detailItem}>
                     <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
                     <View style={styles.detailCol}>
-                      <Text style={styles.detailLabel}>Email Address</Text>
-                      <Text style={styles.detailValue}>{displayEmail}</Text>
+                      <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Email Address</Text>
+                      <Text style={[styles.detailValue, { color: colors.textPrimary }]}>{displayEmail}</Text>
                     </View>
                   </View>
 
@@ -537,8 +665,8 @@ export default function ProfileScreen() {
                     <View style={styles.detailItem}>
                       <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} />
                       <View style={styles.detailCol}>
-                        <Text style={styles.detailLabel}>Member Since</Text>
-                        <Text style={styles.detailValue}>
+                        <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Member Since</Text>
+                        <Text style={[styles.detailValue, { color: colors.textPrimary }]}>
                           {(() => {
                             try {
                               return new Date(profileData!.created_at!).toLocaleDateString(undefined, {
@@ -560,8 +688,8 @@ export default function ProfileScreen() {
                     <View style={styles.detailItem}>
                       <Ionicons name="time-outline" size={20} color={colors.textSecondary} />
                       <View style={styles.detailCol}>
-                        <Text style={styles.detailLabel}>Last Updated</Text>
-                        <Text style={styles.detailValue}>
+                        <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>Last Updated</Text>
+                        <Text style={[styles.detailValue, { color: colors.textPrimary }]}>
                           {(() => {
                             try {
                               return new Date(profileData!.updated_at!).toLocaleDateString(undefined, {
@@ -583,43 +711,198 @@ export default function ProfileScreen() {
               )}
             </View>
 
+            {/* Appearance & Dark Mode Settings Card */}
+            {!isEditing && (
+              <View style={[styles.themeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <View style={styles.themeHeaderRow}>
+                  <View style={styles.themeHeaderLeft}>
+                    <View
+                      style={[
+                        styles.themeIconWrapper,
+                        {
+                          backgroundColor: isDark ? colors.surfaceLight : '#FEF3C7',
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={isDark ? 'moon' : 'sunny'}
+                        size={22}
+                        color={isDark ? colors.accent : '#D97706'}
+                      />
+                    </View>
+                    <View style={styles.themeTextContainer}>
+                      <Text style={[styles.themeTitle, { color: colors.textPrimary }]}>
+                        Dark Mode
+                      </Text>
+                      <Text style={[styles.themeSubtitle, { color: colors.textSecondary }]}>
+                        {isDark ? 'Dark theme enabled across app' : 'Light theme enabled across app'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={isDark}
+                    onValueChange={toggleTheme}
+                    trackColor={{ false: '#D1D5DB', true: colors.accent }}
+                    thumbColor={colors.white}
+                  />
+                </View>
+
+                {isDark && (
+                  <View style={[styles.palettesSection, { borderTopColor: colors.border }]}>
+                    <Text style={[styles.paletteSectionTitle, { color: colors.textPrimary }]}>
+                      Dark Theme Aesthetic
+                    </Text>
+                    <Text style={[styles.paletteSectionSubtitle, { color: colors.textSecondary }]}>
+                      Choose from 5 styles inspired by modern glass & minimal dark
+                    </Text>
+
+                    <View style={styles.paletteGrid}>
+                      {availablePalettes.map((item) => {
+                        const isSelected = palette === item.id;
+                        return (
+                          <TouchableOpacity
+                            key={item.id}
+                            activeOpacity={0.8}
+                            onPress={() => setPalette(item.id)}
+                            style={[
+                              styles.paletteCard,
+                              {
+                                backgroundColor: item.bgPreview,
+                                borderColor: isSelected ? item.accentColor : colors.border,
+                                borderWidth: isSelected ? 2 : 1,
+                              },
+                            ]}
+                          >
+                            <View style={styles.paletteCardHeader}>
+                              <View style={styles.paletteTitleRow}>
+                                <View
+                                  style={[
+                                    styles.paletteIndicatorDot,
+                                    { backgroundColor: item.accentColor },
+                                  ]}
+                                />
+                                <Text
+                                  style={[
+                                    styles.paletteCardName,
+                                    { color: isSelected ? item.accentColor : '#F8FAFC' },
+                                  ]}
+                                >
+                                  {item.name}
+                                </Text>
+                              </View>
+                              {isSelected ? (
+                                <View
+                                  style={[
+                                    styles.activeCheckBadge,
+                                    { backgroundColor: item.accentColor },
+                                  ]}
+                                >
+                                  <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                                </View>
+                              ) : (
+                                <View
+                                  style={[
+                                    styles.inactiveRadio,
+                                    { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                                  ]}
+                                />
+                              )}
+                            </View>
+
+                            <Text style={styles.paletteTaglineText} numberOfLines={1}>
+                              {item.tagline}
+                            </Text>
+
+                            {/* Color Palette Preview Swatches (as shown in user's reference image) */}
+                            <View style={styles.paletteSwatchesRow}>
+                              <Text style={styles.colorPaletteLabel}>Color Palette</Text>
+                              <View style={styles.dotsGroup}>
+                                {item.paletteDots.map((dotColor, idx) => (
+                                  <View
+                                    key={idx}
+                                    style={[
+                                      styles.colorDot,
+                                      {
+                                        backgroundColor: dotColor,
+                                        borderColor: item.bgPreview,
+                                      },
+                                    ]}
+                                  />
+                                ))}
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
             {/* Action Links & Sign Out (Hidden in edit mode) */}
             {!isEditing && (
-              <View style={styles.linksCard}>
+              <View style={[styles.linksCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <TouchableOpacity
-                  style={styles.linkRow}
+                  style={[styles.linkRow, { borderBottomColor: colors.border }]}
                   onPress={() => navigation.navigate('BookingHistory')}
                 >
                   <View style={styles.linkLeft}>
-                    <Ionicons name="time-outline" size={20} color={colors.primary} />
-                    <Text style={styles.linkText}>Rental & Booking History</Text>
+                    <Ionicons name="time-outline" size={20} color={colors.accent} />
+                    <Text style={[styles.linkText, { color: colors.textPrimary }]}>Rental & Booking History</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
                 </TouchableOpacity>
 
                 {isAdmin && (
                   <TouchableOpacity
-                    style={styles.linkRow}
+                    style={[styles.linkRow, { borderBottomColor: colors.border }]}
                     onPress={() => navigation.navigate('AdminDashboard')}
                   >
                     <View style={styles.linkLeft}>
                       <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} />
-                      <Text style={styles.linkText}>Admin Portal</Text>
+                      <Text style={[styles.linkText, { color: colors.textPrimary }]}>Admin Portal</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
                   </TouchableOpacity>
                 )}
 
                 <TouchableOpacity
-                  style={styles.linkRow}
+                  style={[styles.linkRow, { borderBottomColor: colors.border }]}
                   onPress={() => navigation.navigate('ResetPassword')}
                   activeOpacity={0.8}
                 >
                   <View style={styles.linkLeft}>
-                    <Ionicons name="key-outline" size={20} color={colors.primary} />
-                    <Text style={styles.linkText}>Reset Password</Text>
+                    <Ionicons name="key-outline" size={20} color={colors.accent} />
+                    <Text style={[styles.linkText, { color: colors.textPrimary }]}>Reset Password</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.linkRow, { borderBottomColor: colors.border }]}
+                  onPress={handlePrivacyPolicy}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.linkLeft}>
+                    <Ionicons name="shield-checkmark-outline" size={20} color={colors.accent} />
+                    <Text style={[styles.linkText, { color: colors.textPrimary }]}>Privacy Policy</Text>
+                  </View>
+                  <Ionicons name="open-outline" size={18} color={colors.textLight} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.linkRow, { borderBottomColor: colors.border }]}
+                  onPress={handleRequestAccountDeletion}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.linkLeft}>
+                    <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                    <Text style={[styles.linkText, { color: colors.danger, fontWeight: '700' }]}>
+                      Request Account Deletion
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.danger} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -898,5 +1181,134 @@ const styles = StyleSheet.create({
     fontSize: typography.body1.fontSize,
     color: colors.danger,
     fontWeight: '700',
+  },
+  themeCard: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    ...shadows.sm,
+  },
+  themeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  themeHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 4,
+    flex: 1,
+  },
+  themeIconWrapper: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  themeTextContainer: {
+    flex: 1,
+  },
+  themeTitle: {
+    fontSize: typography.body1.fontSize,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  themeSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  palettesSection: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+  },
+  paletteSectionTitle: {
+    fontSize: typography.body2.fontSize,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  paletteSectionSubtitle: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+    marginBottom: spacing.sm + 4,
+  },
+  paletteGrid: {
+    gap: spacing.sm + 2,
+  },
+  paletteCard: {
+    borderRadius: borderRadius.md,
+    padding: spacing.sm + 4,
+    overflow: 'hidden',
+  },
+  paletteCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  paletteTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  paletteIndicatorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  paletteCardName: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  activeCheckBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inactiveRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+  },
+  paletteTaglineText: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 3,
+    marginBottom: spacing.xs,
+  },
+  paletteSwatchesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  colorPaletteLabel: {
+    fontSize: 10,
+    color: '#94A3B8',
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  dotsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  colorDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
   },
 });

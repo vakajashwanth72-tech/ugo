@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - UgO NITK Cycle Sharing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0f1d;
+            --bg-secondary: #111827;
+            --bg-card: #162032;
+            --border-color: #233149;
+            --accent-cyan: #06b6d4;
+            --accent-blue: #3b82f6;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-sub: #cbd5e1;
+            --badge-bg: rgba(6, 182, 212, 0.12);
+            --danger-bg: rgba(239, 68, 68, 0.12);
+            --danger-text: #f87171;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            line-height: 1.7;
+            padding-bottom: 60px;
+        }
+
+        /* Navigation Header */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: rgba(10, 15, 29, 0.88);
+            backdrop-filter: blur(14px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 24px;
+        }
+
+        .nav-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .brand-box {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .brand-logo {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            object-fit: contain;
+            background: #000;
+            border: 1px solid var(--border-color);
+        }
+
+        .brand-name {
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #38bdf8 0%, #06b6d4 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: color 0.2s ease;
+        }
+
+        .nav-links a:hover {
+            color: var(--accent-cyan);
+        }
+
+        .btn-delete {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171 !important;
+            padding: 6px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            font-size: 0.85rem !important;
+        }
+
+        .btn-delete:hover {
+            background: rgba(239, 68, 68, 0.25) !important;
+            color: #ffffff !important;
+        }
+
+        /* Container */
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 40px 24px;
+        }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            margin-bottom: 48px;
+            padding: 36px 20px;
+            background: linear-gradient(180deg, rgba(6, 182, 212, 0.08) 0%, rgba(10, 15, 29, 0) 100%);
+            border-radius: 24px;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+
+        .badge {
+            display: inline-block;
+            background: var(--badge-bg);
+            color: var(--accent-cyan);
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 14px;
+            border: 1px solid rgba(6, 182, 212, 0.3);
+        }
+
+        h1 {
+            font-size: 2.4rem;
+            font-weight: 800;
+            line-height: 1.25;
+            margin-bottom: 12px;
+            letter-spacing: -0.03em;
+        }
+
+        .meta-info {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        /* Content Sections */
+        .content-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            padding: 32px;
+            margin-bottom: 28px;
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3);
+        }
+
+        h2 {
+            font-size: 1.45rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        h3 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin: 20px 0 10px 0;
+            color: var(--accent-cyan);
+        }
+
+        p {
+            color: var(--text-sub);
+            margin-bottom: 14px;
+            font-size: 0.98rem;
+        }
+
+        ul, ol {
+            margin-left: 24px;
+            margin-bottom: 16px;
+            color: var(--text-sub);
+        }
+
+        li {
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+
+        li strong {
+            color: var(--text-main);
+        }
+
+        /* Table */
+        .table-responsive {
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.92rem;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        th, td {
+            padding: 14px 18px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: rgba(6, 182, 212, 0.1);
+            color: var(--accent-cyan);
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 0.78rem;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            color: var(--text-sub);
+        }
+
+        /* Callout Box */
+        .callout {
+            background: rgba(6, 182, 212, 0.08);
+            border-left: 4px solid var(--accent-cyan);
+            padding: 18px 20px;
+            border-radius: 0 12px 12px 0;
+            margin: 20px 0;
+        }
+
+        .callout p {
+            margin: 0;
+            color: var(--text-main);
+        }
+
+        .callout-warning {
+            background: rgba(239, 68, 68, 0.08);
+            border-left: 4px solid #ef4444;
+        }
+
+        .callout-warning p {
+            color: #fca5a5;
+        }
+
+        /* Button */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #06b6d4 0%, #0284c7 100%);
+            color: #ffffff;
+            border: none;
+            box-shadow: 0 4px 14px rgba(6, 182, 212, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(6, 182, 212, 0.5);
+        }
+
+        footer {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-top: 40px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 24px;
+        }
+
+        @media (max-width: 768px) {
+            h1 { font-size: 1.85rem; }
+            .content-card { padding: 22px 18px; }
+            .nav-container { flex-direction: column; gap: 14px; align-items: flex-start; }
+            .nav-links { width: 100%; justify-content: space-between; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="nav-container">
+            <a href="index.html" class="brand-box">
+                <img src="logo.png" alt="UgO Logo" class="brand-logo">
+                <span class="brand-name">UgO NITK</span>
+            </a>
+            <nav class="nav-links">
+                <a href="#permissions">Permissions</a>
+                <a href="#third-parties">Third Parties</a>
+                <a href="#data-retention">Data Retention</a>
+                <a href="account-deletion.html" class="btn-delete">Account Deletion</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <section class="hero">
+            <span class="badge">Google Play Developer Policy Compliant</span>
+            <h1>Privacy Policy</h1>
+            <div class="meta-info">
+                <span><strong>Application:</strong> UgO NITK (<code>in.ugo.nitk.mobile</code>)</span>
+                <span><strong>Developer:</strong> UgO Cycle Sharing Team</span>
+                <span><strong>Effective Date:</strong> October 10, 2026</span>
+            </div>
+        </section>
+
+        <!-- 1. Introduction -->
+        <div class="content-card">
+            <h2>1. Introduction & Overview</h2>
+            <p>
+                Welcome to <strong>UgO NITK</strong>, a community-driven peer-to-peer bicycle sharing platform developed by the <strong>UgO Cycle Sharing Team</strong> exclusively for students, staff, and faculty of the <strong>National Institute of Technology Karnataka (NITK), Surathkal</strong>.
+            </p>
+            <p>
+                Your privacy is paramount to us. This Privacy Policy discloses our practices concerning the collection, storage, processing, and transfer of personal and device information when you use our mobile application and related services. By downloading, accessing, or using the UgO NITK mobile application, you consent to the data collection and usage practices described herein.
+            </p>
+            <div class="callout">
+                <p><strong>Core Promise:</strong> We collect only the minimum data required to facilitate safe cycle rentals, authenticate campus identities, process transactions, and coordinate meetups within the NITK Surathkal campus. <strong>We do not sell, rent, or trade your personal data to any third-party advertisers or data brokers.</strong></p>
+            </div>
+        </div>
+
+        <!-- 2. Information We Collect -->
+        <div class="content-card">
+            <h2>2. Information We Collect</h2>
+            <p>To deliver a secure and verified campus cycle-sharing service, we collect the following categories of information:</p>
+
+            <h3>A. Information You Provide Directly</h3>
+            <ul>
+                <li><strong>Identity & Account Details:</strong> Full Name, institutional email address (e.g., <code>@nitk.edu.in</code>), contact phone number, student roll number/department, and campus hostel/residence address.</li>
+                <li><strong>Cycle Listings & Photos:</strong> Brand, model, cycle type, photos of the cycle, lock combination notes, and hourly/daily rental pricing specified by cycle owners.</li>
+                <li><strong>Identity & Verification Proof:</strong> Cycle condition photos captured upon ride pickup and upon ride return to substantiate cycle integrity and prevent disputes.</li>
+                <li><strong>Ratings & Reviews:</strong> Qualitative reviews and star ratings submitted post-ride for cycles and peer renters/owners.</li>
+            </ul>
+
+            <h3>B. Automatically Collected Information</h3>
+            <ul>
+                <li><strong>Device & Network Data:</strong> Android OS version, device model, hardware identifiers, network carrier, application version, and diagnostic crash logs.</li>
+                <li><strong>Push Notification Tokens:</strong> Firebase Cloud Messaging (FCM) registration tokens used to deliver operational rental updates, OTP codes, and incoming audio call notifications.</li>
+            </ul>
+        </div>
+
+        <!-- 3. Permissions & Device Capabilities -->
+        <div class="content-card" id="permissions">
+            <h2>3. Android Permissions & Purpose Specification</h2>
+            <p>
+                In strict adherence to Google Play's User Data and Sensitive Permissions policies, the UgO NITK mobile app requests only the permissions strictly required for core app features:
+            </p>
+
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Permission</th>
+                            <th>Policy Classification</th>
+                            <th>Operational Purpose & Scope</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>ACCESS_FINE_LOCATION</code><br><code>ACCESS_COARSE_LOCATION</code></td>
+                            <td>Foreground Location</td>
+                            <td>
+                                <strong>Active Campus Navigation & Meetups:</strong> Used to display cycle pickup locations across NITK Surathkal (e.g., Mega Tower, Silver Jubilee, Main Building), assist renters in locating parked cycles, and compute distance to pickup spots.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><code>ACCESS_BACKGROUND_LOCATION</code></td>
+                            <td>Background Location</td>
+                            <td>
+                                <strong>Active Ride Safety & Session Verification:</strong> Only collected while an active rental session is in progress to verify campus boundary compliance, record total distance traversed, and facilitate recovery in case of an emergency or lost cycle. Background location tracking ceases immediately once the ride is returned or concluded.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><code>RECORD_AUDIO</code><br><code>MODIFY_AUDIO_SETTINGS</code></td>
+                            <td>Microphone & Audio</td>
+                            <td>
+                                <strong>Peer-to-Peer Coordination Calls (LiveKit):</strong> Used exclusively during an active booking session to enable voice calling between the renter and cycle owner via LiveKit WebRTC for pickup/return coordination. <em>We do not record, store, transcribe, or transmit your voice or audio conversations. Audio is transmitted purely in real-time ephemerally.</em>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><code>CAMERA</code></td>
+                            <td>Hardware Camera</td>
+                            <td>
+                                <strong>Cycle Verification Photos:</strong> Used to photograph the bicycle at the start of a rental and at return. This creates an unalterable condition report protecting both owner and renter against false damage claims.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><code>READ_MEDIA_IMAGES</code><br><code>READ_EXTERNAL_STORAGE</code></td>
+                            <td>Storage / Media</td>
+                            <td>
+                                <strong>Cycle Listing & Profile Images:</strong> Allows owners to select photos of their cycle from the device gallery when publishing or editing cycle listings.
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><code>POST_NOTIFICATIONS</code></td>
+                            <td>Notifications (Android 13+)</td>
+                            <td>
+                                <strong>Rental Alerts & Reminders:</strong> Used to deliver instantaneous alerts for rental booking requests, owner approvals, OTP verification codes, payment receipts, and incoming audio call alerts.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 4. Third-Party Service Providers -->
+        <div class="content-card" id="third-parties">
+            <h2>4. Third-Party Service Providers</h2>
+            <p>
+                We partner with vetted, industry-leading third-party services to deliver secure payments, notifications, and communications:
+            </p>
+            <ul>
+                <li>
+                    <strong>Razorpay Software Private Limited (Payments Gateway):</strong>
+                    Used to process rental transactions, security deposits, and settlement payouts to bicycle owners via UPI/IMPS. All card, netbanking, and UPI credentials are submitted directly to Razorpay's PCI-DSS Level 1 certified infrastructure. <em>UgO NITK never sees, collects, or stores raw debit/credit card numbers or CVVs on its servers.</em>
+                    <br><a href="https://razorpay.com/privacy/" target="_blank" style="color: var(--accent-cyan);">Razorpay Privacy Policy &rarr;</a>
+                </li>
+                <li style="margin-top: 10px;">
+                    <strong>Google Play Services & Firebase Cloud Messaging (FCM):</strong>
+                    Used to deliver real-time push notifications, authenticate devices, and provide essential Google Maps rendering for campus mapping.
+                    <br><a href="https://policies.google.com/privacy" target="_blank" style="color: var(--accent-cyan);">Google Privacy Policy &rarr;</a>
+                </li>
+                <li style="margin-top: 10px;">
+                    <strong>LiveKit (Real-Time WebRTC Audio):</strong>
+                    Powers end-to-end peer-to-peer real-time audio rooms when a renter and owner coordinate over a call. Voice data is streamed transiently and is never saved, recorded, or analyzed.
+                    <br><a href="https://livekit.io/privacy" target="_blank" style="color: var(--accent-cyan);">LiveKit Privacy Policy &rarr;</a>
+                </li>
+            </ul>
+        </div>
+
+        <!-- 5. Data Security & Storage -->
+        <div class="content-card">
+            <h2>5. Data Security & Integrity</h2>
+            <p>
+                We implement comprehensive technical, physical, and administrative safeguards to protect your personal information:
+            </p>
+            <ul>
+                <li><strong>Encryption in Transit:</strong> All communications between the UgO mobile app and backend servers utilize industry-standard Transport Layer Security (TLS 1.2/1.3) with HTTPS and secure WebSockets (WSS).</li>
+                <li><strong>Tokenized Authentication:</strong> Passwords are cryptographically hashed using salted bcrypt routines. API requests are authenticated using short-lived JSON Web Tokens (JWT).</li>
+                <li><strong>Restricted Access:</strong> Access to user logs and administrative portals is strictly limited to authorized UgO NITK administrators under multi-factor authentication.</li>
+            </ul>
+        </div>
+
+        <!-- 6. Data Retention & Account Deletion -->
+        <div class="content-card" id="data-retention">
+            <h2>6. Data Retention & Account Deletion Policy</h2>
+            <p>
+                In compliance with Google Play's Account Deletion Requirement, UgO provides clear, accessible methods for all users to request permanent deletion of their account and associated data.
+            </p>
+
+            <h3>Data Retention Schedule</h3>
+            <ul>
+                <li><strong>Active Profiles:</strong> Retained as long as your UgO account remains active and in good standing.</li>
+                <li><strong>Location & Telemetry:</strong> Ephemeral ride telemetry is purged or anonymized within 30 days following rental completion.</li>
+                <li><strong>Financial & Transactional Records:</strong> Transaction IDs, payment references, and rental receipts are retained for 7 years in accordance with Indian tax laws and the Prevention of Money Laundering Act (PMLA).</li>
+            </ul>
+
+            <h3>How to Delete Your Account & Associated Data</h3>
+            <p>You may initiate an account deletion request through either of the following methods:</p>
+            <ol>
+                <li><strong>In-App Deletion:</strong> Navigate to <code>Profile &rarr; Account Settings &rarr; Request Account Deletion</code> in the mobile app.</li>
+                <li><strong>Web-Based Deletion Request:</strong> Visit our dedicated <a href="account-deletion.html" style="color: var(--accent-cyan); font-weight: 700;">Account Deletion Request Portal</a> or email us directly at <a href="mailto:ugocyclesharing@gmail.com?subject=Account%20Deletion%20Request%20-%20UgO" style="color: var(--accent-cyan); font-weight: 700;">ugocyclesharing@gmail.com</a> with your registered NITK email and Roll Number.</li>
+            </ol>
+
+            <div class="callout">
+                <p><strong>Timeline:</strong> Account deletion requests are verified and processed within <strong>7 business days</strong>. Upon deletion, your profile details, contact number, uploaded cycle photos, and verification documents are permanently purged from active databases.</p>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <a href="account-deletion.html" class="btn btn-primary">Visit Dedicated Account Deletion Page &rarr;</a>
+            </div>
+        </div>
+
+        <!-- 7. Children's Privacy -->
+        <div class="content-card">
+            <h2>7. Children's Privacy (Under 13 / 18)</h2>
+            <p>
+                UgO NITK is specifically targeted and restricted to bona fide university students, research scholars, staff, and faculty of NITK Surathkal. We do not knowingly market to or collect personal information from individuals under the age of 13. If we discover that an account has been registered by a minor under 13 without verifiable parental/guardian consent, we will delete that account immediately.
+            </p>
+        </div>
+
+        <!-- 8. Policy Updates -->
+        <div class="content-card">
+            <h2>8. Changes to This Privacy Policy</h2>
+            <p>
+                We may periodically update this Privacy Policy to reflect changes in our service architecture, regulatory mandates, or Google Play Developer program policies. When modifications are made, the revised date at the top of this document will be updated. Substantial changes will be communicated via an in-app notice or email notification prior to taking effect.
+            </p>
+        </div>
+
+        <!-- 9. Contact & Grievance Redressal -->
+        <div class="content-card">
+            <h2>9. Contact Us & Grievance Redressal</h2>
+            <p>
+                For questions, concerns, or grievances regarding this Privacy Policy or our data handling practices, please contact our team:
+            </p>
+            <div style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; border: 1px solid var(--border-color); margin-top: 14px;">
+                <p style="margin-bottom: 6px;"><strong>Developer / Entity:</strong> UgO Cycle Sharing Team</p>
+                <p style="margin-bottom: 6px;"><strong>Institution:</strong> National Institute of Technology Karnataka (NITK), Surathkal</p>
+                <p style="margin-bottom: 6px;"><strong>Location:</strong> Srinivasnagar, Mangaluru, Karnataka 575025, India</p>
+                <p style="margin-bottom: 0;"><strong>Official Support & Grievance Email:</strong> <a href="mailto:ugocyclesharing@gmail.com" style="color: var(--accent-cyan); font-weight: 700;">ugocyclesharing@gmail.com</a></p>
+            </div>
+        </div>
+
+        <footer>
+            <p>&copy; 2026 UgO Cycle Sharing Team &bull; NITK Surathkal. All rights reserved.</p>
+            <p style="margin-top: 6px;"><a href="account-deletion.html" style="color: var(--accent-cyan); text-decoration: none;">Account & Data Deletion Portal</a></p>
+        </footer>
+
+    </div>
+
+</body>
+</html>
